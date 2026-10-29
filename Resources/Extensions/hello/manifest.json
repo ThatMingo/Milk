@@ -1,0 +1,8 @@
+{
+  "id": "milk.example.hello",
+  "version": "1.0.0",
+  "protocolVersion": 1,
+  "entry": "main.js",
+  "permissions": ["ui.contribute"],
+  "contributions": [{"id": "hello", "point": "status", "title": "Hello from the extension host"}]
+}

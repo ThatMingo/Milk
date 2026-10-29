@@ -1,0 +1,486 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		08D205AA94BD7E71DBE9797D /* MilkKit in Frameworks */ = {isa = PBXBuildFile; productRef = E0126D4F5BCE3E55BE6EA584 /* MilkKit */; };
+		0BFE67A1C905102ABEAAA1EF /* MilkExtensionHost in Embed Extension Host */ = {isa = PBXBuildFile; fileRef = D272C31973055DF7257ED3B1 /* MilkExtensionHost */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		26659D0DDF0A48243D45F134 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CA53ABF37A5EEC0146CF5357 /* Cocoa.framework */; };
+		921293169594E1936814E476 /* MilkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B54C4B4E17A02510138E32 /* MilkApp.swift */; };
+		A48E830D2706E38FFC7DF4A3 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CA53ABF37A5EEC0146CF5357 /* Cocoa.framework */; };
+		CC794687E3A216212F938BA8 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDB57F8782799F4B45B45ECC /* main.swift */; };
+		E57D791CFEF5E828FD1DF101 /* MilkCore in Frameworks */ = {isa = PBXBuildFile; productRef = C260CD830368334BF7C6742E /* MilkCore */; };
+		FF898BE319B7330827777725 /* Extensions in Resources */ = {isa = PBXBuildFile; fileRef = 6C789BA3F64481E4981124FB /* Extensions */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D3CF8FA345B62A2845E058B6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46EA6DA0294CCA528F691E35 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BDD880DCA5BB12F9684030A;
+			remoteInfo = MilkExtensionHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1D99E2FDDA575036F1561062 /* Embed Extension Host */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				0BFE67A1C905102ABEAAA1EF /* MilkExtensionHost in Embed Extension Host */,
+			);
+			name = "Embed Extension Host";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		45B54C4B4E17A02510138E32 /* MilkApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MilkApp.swift; path = App/MilkApp.swift; sourceTree = "<group>"; };
+		6C789BA3F64481E4981124FB /* Extensions */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = Extensions; path = Resources/Extensions; sourceTree = "<group>"; };
+		74E01882856EB45DF38FE407 /* Milk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Milk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BD33D46BBF22368E16F69F1 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Configuration/Debug.xcconfig; sourceTree = "<group>"; };
+		CA53ABF37A5EEC0146CF5357 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		D272C31973055DF7257ED3B1 /* MilkExtensionHost */ = {isa = PBXFileReference; includeInIndex = 0; path = MilkExtensionHost; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDB57F8782799F4B45B45ECC /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = main.swift; path = Sources/MilkExtensionHost/main.swift; sourceTree = "<group>"; };
+		EBA88515C954BD843946DD36 /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Configuration/Release.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4A29FA43FB990C0E838A06DC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A48E830D2706E38FFC7DF4A3 /* Cocoa.framework in Frameworks */,
+				08D205AA94BD7E71DBE9797D /* MilkKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		61EABA520324CF55B1550A40 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26659D0DDF0A48243D45F134 /* Cocoa.framework in Frameworks */,
+				E57D791CFEF5E828FD1DF101 /* MilkCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00DBD162972D7622168DFAFD /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				CA53ABF37A5EEC0146CF5357 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		2358E93F4BE04DA6EFFD9E77 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				74E01882856EB45DF38FE407 /* Milk.app */,
+				D272C31973055DF7257ED3B1 /* MilkExtensionHost */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		712C2CA0AFF8B9A18F2475E8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				00DBD162972D7622168DFAFD /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		DA6F70E93C9A8E86F9CBF990 /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				8BD33D46BBF22368E16F69F1 /* Debug.xcconfig */,
+				EBA88515C954BD843946DD36 /* Release.xcconfig */,
+			);
+			name = Configuration;
+			sourceTree = "<group>";
+		};
+		FE3EA64968AA284F800BF2B0 = {
+			isa = PBXGroup;
+			children = (
+				2358E93F4BE04DA6EFFD9E77 /* Products */,
+				712C2CA0AFF8B9A18F2475E8 /* Frameworks */,
+				DA6F70E93C9A8E86F9CBF990 /* Configuration */,
+				45B54C4B4E17A02510138E32 /* MilkApp.swift */,
+				DDB57F8782799F4B45B45ECC /* main.swift */,
+				6C789BA3F64481E4981124FB /* Extensions */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4A2588716D123094A5D1D6ED /* Milk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E2100AB7969E791100EFD0AF /* Build configuration list for PBXNativeTarget "Milk" */;
+			buildPhases = (
+				4EDAE493C8A93BF6CA6F508A /* Sources */,
+				4A29FA43FB990C0E838A06DC /* Frameworks */,
+				0105EE341181AF032241EB95 /* Resources */,
+				1D99E2FDDA575036F1561062 /* Embed Extension Host */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B51B45C872A216CC0CE7E41C /* PBXTargetDependency */,
+			);
+			name = Milk;
+			packageProductDependencies = (
+				E0126D4F5BCE3E55BE6EA584 /* MilkKit */,
+			);
+			productName = Milk;
+			productReference = 74E01882856EB45DF38FE407 /* Milk.app */;
+			productType = "com.apple.product-type.application";
+		};
+		6BDD880DCA5BB12F9684030A /* MilkExtensionHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CF3598E3141B751432A38396 /* Build configuration list for PBXNativeTarget "MilkExtensionHost" */;
+			buildPhases = (
+				2179DB64B37C9B358CFE9D58 /* Sources */,
+				61EABA520324CF55B1550A40 /* Frameworks */,
+				5D499C077CEBE3F7EE480ED7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MilkExtensionHost;
+			packageProductDependencies = (
+				C260CD830368334BF7C6742E /* MilkCore */,
+			);
+			productName = MilkExtensionHost;
+			productReference = D272C31973055DF7257ED3B1 /* MilkExtensionHost */;
+			productType = "com.apple.product-type.xpc-service";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46EA6DA0294CCA528F691E35 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 2ABA3DD84B1B70D872DBCF06 /* Build configuration list for PBXProject "Milk" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = FE3EA64968AA284F800BF2B0;
+			minimizedProjectReferenceProxies = 0;
+			packageReferences = (
+				82BAF59B6EC6B52D4C6F4EC7 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 100;
+			productRefGroup = 2358E93F4BE04DA6EFFD9E77 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4A2588716D123094A5D1D6ED /* Milk */,
+				6BDD880DCA5BB12F9684030A /* MilkExtensionHost */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0105EE341181AF032241EB95 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FF898BE319B7330827777725 /* Extensions in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5D499C077CEBE3F7EE480ED7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2179DB64B37C9B358CFE9D58 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC794687E3A216212F938BA8 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4EDAE493C8A93BF6CA6F508A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				921293169594E1936814E476 /* MilkApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B51B45C872A216CC0CE7E41C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MilkExtensionHost;
+			target = 6BDD880DCA5BB12F9684030A /* MilkExtensionHost */;
+			targetProxy = D3CF8FA345B62A2845E058B6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		22669665304BB208B83A8A65 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EBA88515C954BD843946DD36 /* Release.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Configuration/ExtensionHost.entitlements;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configuration/ExtensionHost-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.thatmingo.Milk.ExtensionHost;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		48554C27FB44C41F8784825C /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EBA88515C954BD843946DD36 /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configuration/Milk-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.thatmingo.Milk;
+				SDKROOT = macosx;
+				SKIP_INSTALL = NO;
+			};
+			name = Release;
+		};
+		8987FE4FD8B8205B98FB5EB6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9374345EDE8D196227C25E36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A58BAA2D3FF5D9165D92878E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8BD33D46BBF22368E16F69F1 /* Debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Configuration/ExtensionHost.entitlements;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configuration/ExtensionHost-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.thatmingo.Milk.ExtensionHost;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		C9070BB88BE155336E65B6B2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8BD33D46BBF22368E16F69F1 /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configuration/Milk-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.thatmingo.Milk;
+				SDKROOT = macosx;
+				SKIP_INSTALL = NO;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2ABA3DD84B1B70D872DBCF06 /* Build configuration list for PBXProject "Milk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9374345EDE8D196227C25E36 /* Debug */,
+				8987FE4FD8B8205B98FB5EB6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CF3598E3141B751432A38396 /* Build configuration list for PBXNativeTarget "MilkExtensionHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22669665304BB208B83A8A65 /* Release */,
+				A58BAA2D3FF5D9165D92878E /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E2100AB7969E791100EFD0AF /* Build configuration list for PBXNativeTarget "Milk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48554C27FB44C41F8784825C /* Release */,
+				C9070BB88BE155336E65B6B2 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		82BAF59B6EC6B52D4C6F4EC7 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C260CD830368334BF7C6742E /* MilkCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82BAF59B6EC6B52D4C6F4EC7 /* XCLocalSwiftPackageReference "." */;
+			productName = MilkCore;
+		};
+		E0126D4F5BCE3E55BE6EA584 /* MilkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82BAF59B6EC6B52D4C6F4EC7 /* XCLocalSwiftPackageReference "." */;
+			productName = MilkKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 46EA6DA0294CCA528F691E35 /* Project object */;
+}
