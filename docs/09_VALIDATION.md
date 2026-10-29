@@ -51,6 +51,8 @@ Final checks also verified native quit and relaunch with the intended workspace,
 
 WebKit displayed the HTML fixture's “Milk preview works” heading. The native Markdown provider displayed the Markdown fixture. The explicit local SourceKit-LSP initialization test passed independently of the model tests.
 
+The final artifact also verified selecting an already-open file replaces both pane coordinators with the correct document identity, and selecting a Changes row displayed the actual Git patch for that file.
+
 Visual editor validation caught a line-number ruler painting outside its own bounds. Explicit clipping fixed the blank source rendering, and a bitmap regression test now protects source text outside the gutter. Split-pane representables are keyed by document identity to prevent stale coordinators when changing file tabs.
 
 ## Configuration preservation observation
