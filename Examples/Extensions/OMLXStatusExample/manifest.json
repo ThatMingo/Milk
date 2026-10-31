@@ -1,0 +1,12 @@
+{
+  "id": "dev.milk.example.omlx-status",
+  "name": "oMLX Status Example",
+  "version": "1.0.0",
+  "milkApi": "1",
+  "minimumMilkVersion": "0.7.0",
+  "principalClass": "OMLXStatusExample.OMLXStatusExample",
+  "executable": "OMLXStatusExample",
+  "capabilities": ["network", "keychain", "pi"],
+  "author": "Milk developer example",
+  "description": "External, removable native oMLX status UI. No inference server is bundled or managed."
+}

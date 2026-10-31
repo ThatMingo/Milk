@@ -1,0 +1,26 @@
+{
+  "version": "1.4.0",
+  "archiveSHA256": "79d9979d76a2a5adb7c28e27e9b44629928ccd0dc9fbb6ae7217860bd5e8be5d",
+  "executableSHA256": "b4d93b78e542ca8d1792242cf6c1a875ef4e6fb644141fb4cf67ec7c81ef9b14",
+  "source": "https://github.com/earendil-works/pi/releases/tag/v1.4.0",
+  "tools": [
+    {
+      "name": "rg",
+      "version": "15.2.0",
+      "archiveSHA256": "3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4",
+      "executableSHA256": "a326a1fb48074202e9ad41e4cd1e389eeea372c8c6f7d7e80da81176d5d9430e",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0"
+    },
+    {
+      "name": "fd",
+      "version": "10.5.0",
+      "archiveSHA256": "b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12",
+      "executableSHA256": "cf3bde435da174f41cf9589a2efeaf03804df7c250fc15e8b8a1e9bfc66ebc9a",
+      "source": "https://github.com/sharkdp/fd/releases/tag/v10.5.0"
+    }
+  ],
+  "runtimeFiles": {
+    "photon_rs_bg.wasm": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c",
+    "native/darwin/prebuilds/darwin-arm64/darwin-platform.node": "36e909adf35c2734a2a52b3d65b7dbfb83f2278f306d51b7e32c5045516dfb7f"
+  }
+}

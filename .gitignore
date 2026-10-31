@@ -1,0 +1,93 @@
+# macOS and Xcode local state
+.DS_Store
+._*
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# SwiftPM and generated application/verification products
+.build/
+.swiftpm/
+/build/
+/output/
+/dist/
+*.app/
+*.dSYM/
+*.o
+*.swiftdoc
+*.swiftmodule
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+
+# Local archives (intentional third-party source .tar.gz files stay visible)
+*.zip
+*.dmg
+*.pkg
+
+# Logs, test results, crash reports and temporary files
+*.log
+*.xcresult/
+*.crash
+*.ips
+*.tmp
+*.swp
+*~
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+
+# Local IDE configuration (shared editor configuration remains visible)
+.idea/
+.vscode/*.local.json
+*.xccheckout
+*.xcscmblueprint
+
+# Local credentials, signing material and environment overrides
+.env
+.env.*
+!.env.example
+!.env.sample
+.secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.crt
+*.csr
+*.der
+*.keychain
+*.keychain-db
+
+# Project-local agent state is user data, never bundled Milk source
+/.pi/
+/.milk/
+/.milk-preview/
+/.milk-terminal/
+/.zsh_history
+/.bash_history
+
+# Separately generated native extension example/SDK builds
+/Examples/Extensions/*/build/
+/Packages/*/.build/
+
+# Local development/history/reference archive
+/docs/internal/
+/docs/history/
+/docs/validation/
+/docs/private-reference/
+# Downloaded runtime artifacts; preserve the source pin
+/Runtime/PiRuntime/*
+!/Runtime/PiRuntime/runtime-manifest.json
+/ThirdPartyNotices/pi-1.4.0-source.tar.gz
+*.milkext/
+ExtensionData/
+ExtensionStaging/
+ExtensionBridge/
