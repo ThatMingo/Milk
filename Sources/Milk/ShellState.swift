@@ -91,7 +91,7 @@ import MilkExtensionHost
         agent=AgentService(workspace:workspace,defaults:preferences,enabled:persist,adapter:agentAdapter ?? AgentRegistry.standard(defaults:preferences,nativeExtensions:native,installations:installations).defaultAdapter,makeBackend:backendFactory,lifecycle:owner)
         installations.prepareForShutdown = { [weak agent] in try agent?.prepareForInstallationChange() }
         installations.sessionRuntimeVersions = { [weak agent] in Set(agent?.sessions.filter { $0.agentID == .pi }.compactMap { $0.metadata.lastRuntimeVersion } ?? []) }
-        installations.onSelectionChanged = { [weak agent] in agent?.objectWillChange.send() }
+        installations.onSelectionChanged = { [weak agent, weak extensions] in agent?.objectWillChange.send(); extensions?.refresh(workspace: nil) }
         extensions.lifecycle = agent.lifecycle
         extensions.installations = installations
         extensions.runtimeSelection = { [weak agent] in agent?.configuration.runtime ?? .bundled }

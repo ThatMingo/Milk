@@ -5,6 +5,15 @@ import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import { Type } from "@earendil-works/pi-ai";
 
 export default function (pi: any) {
+  // Pi's documented request header hook supports null to omit SDK defaults.
+  // This only affects the adapter-owned Local provider in explicit None mode.
+  pi.on("before_provider_headers", (event: any, ctx: any) => {
+    if (process.env.MILK_PI_LOCAL_NO_AUTH !== "1" || ctx.model?.provider !== "milk-local") return;
+    for (const name of Object.keys(event.headers)) {
+      if (name.toLowerCase() === "authorization") event.headers[name] = null;
+    }
+    event.headers.Authorization = null;
+  });
   // Milk owns this transport, never extension-supplied JS. Native UI remains SwiftUI/AppKit.
   const catalogPath = process.env.MILK_NATIVE_CATALOG;
   let nativeCatalog: any = { tools: [], prompts: {} };
@@ -64,19 +73,6 @@ export default function (pi: any) {
 
   let permission = process.env.MILK_PERMISSION_MODE === "autonomous" ? "autonomous" : "approval";
   const allowances = new Set<string>();
-  const config = process.env.MILK_OMLX_CONFIG;
-  if (config) {
-    const value = JSON.parse(config);
-    pi.registerProvider("omlx", {
-      name: "oMLX", api: "openai-completions", baseUrl: value.baseUrl,
-      apiKey: "$MILK_OMLX_TOKEN",
-      models: value.models.map((m: any) => ({
-        id: m.id, name: m.id, reasoning: m.reasoning, input: m.image ? ["text", "image"] : ["text"],
-        contextWindow: value.contextWindow, maxTokens: value.maxTokens,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-      }))
-    });
-  }
   pi.on("session_start", async (_event: any, ctx: any) => {
     allowances.clear();
     ctx.ui.setStatus("milk-integration-ready", "1");

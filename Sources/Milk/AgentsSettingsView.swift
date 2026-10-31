@@ -61,7 +61,16 @@ struct AgentsSettingsView: View {
                     SettingsActionRow { Button("Use Pi for New Sessions") { try? agent.setGlobalDefaultAgent(.pi); if state.workspace.workspace != nil { try? agent.selectProjectAgent(.pi) } } }
                 }
             }
-            PiSettingsContent(agent: agent)
+            if let selected = model.selectedRecord {
+                SettingsNote(text: selected.ownership == .milkManaged ? "This Pi uses an isolated Milk profile." : "This uses your existing Pi setup. Changes may also affect Pi outside Milk.")
+            }
+            ForEach(agent.registry.adapters.filter { $0.hasSelectedInstallation }, id: \.descriptor.id) { adapter in
+                if let settings = adapter.settingsProvider {
+                    ForEach(settings.settingsSections) { section in
+                        settings.settingsView(section: section.id, agent: agent).id(model.state.selected)
+                    }
+                }
+            }
         }.task { await model.checkAutomaticUpdate() }
     }
     @ViewBuilder private var actionButtons: some View {

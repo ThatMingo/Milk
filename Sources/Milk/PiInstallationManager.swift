@@ -123,7 +123,7 @@ import Combine
     }
     func resolve(legacy: PiRuntimeMode, owner: AgentLifecycleCoordinator?) async throws -> PiLaunchContext {
         let selected = try selectedInstallation() ?? PiLaunchResolver(runtime: runtime).installation(for: legacy)
-        return try await PiLaunchResolver(runtime: runtime).resolve(selected, lifecycle: owner)
+        return try await PiLaunchResolver(runtime: runtime).resolve(selected, lifecycle: owner, profile: profile(for: selected))
     }
     func setAutoUpdate(_ enabled: Bool) throws {
         try enter(); defer { busy = false }

@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
     private var nativeSession: Int?
     private var nativeTasks: [String:Task<Void,Never>] = [:]
     private let discoveryOnly: Bool
+    private let providerProfileIdentityLoader: @MainActor () throws -> String?
+    private let providerConfigurationLoader: @MainActor () throws -> PiProviderConfiguration
     private let launchConfiguration: AgentConfiguration
     private let lifecycle: AgentLifecycleCoordinator?
     private let resolveLaunch: @MainActor (PiRuntimeMode, AgentLifecycleCoordinator?) async throws -> PiLaunchContext
@@ -48,8 +50,10 @@ import UniformTypeIdentifiers
                      runtimeIdentity: executable.map { .init(executable: $0, version: version, ownership: ownership, installation: record) }, compatibility: compatibility, dataProfile: resolvedLaunch?.dataProfile)
     }
     init(runtime: PiRuntimeService = PiRuntimeService(), discoveryOnly: Bool = false, nativeExtensions: NativeExtensionManager? = nil,
-         configuration: AgentConfiguration = AgentConfiguration(), lifecycle: AgentLifecycleCoordinator? = nil,
+         configuration: AgentConfiguration = AgentConfiguration(), providerConfiguration: PiProviderConfiguration = .init(), providerConfigurationLoader: (@MainActor () throws -> PiProviderConfiguration)? = nil, providerProfileIdentityLoader: @escaping @MainActor () throws -> String? = { nil }, lifecycle: AgentLifecycleCoordinator? = nil,
          resolveLaunch: (@MainActor (PiRuntimeMode, AgentLifecycleCoordinator?) async throws -> PiLaunchContext)? = nil) {
+        self.providerProfileIdentityLoader = providerProfileIdentityLoader
+        self.providerConfigurationLoader = providerConfigurationLoader ?? { providerConfiguration }
         self.lifecycle = lifecycle; self.launchConfiguration = configuration; self.discoveryOnly = discoveryOnly; self.nativeExtensions = nativeExtensions
         self.resolveLaunch = resolveLaunch ?? { mode, owner in try await PiLaunchResolver(runtime: runtime).resolve(mode, lifecycle: owner) }
     }
@@ -76,24 +80,21 @@ import UniformTypeIdentifiers
             environment["PI_OFFLINE"] = "1"
             environment.removeValue(forKey:"MILK_NATIVE_CATALOG")
             if !discoveryOnly, let nativeExtensions { environment["MILK_NATIVE_CATALOG"]=nativeExtensions.catalogURL.path }
-            environment.removeValue(forKey: "MILK_OMLX_CONFIG"); environment.removeValue(forKey: "MILK_OMLX_TOKEN")
-            if configuration.omlx.enabled {
-                let config = try configuration.omlx.validated()
-                guard !config.modelIDs.isEmpty else { throw AgentError.message("Configure and detect an oMLX model before starting this provider.") }
-                let models = config.modelIDs.map { id in JSONValue.object(["id": .string(id), "reasoning": .bool(config.reasoningModels.contains(id)), "image": .bool(config.imageModels.contains(id))]) }
-                environment["MILK_OMLX_CONFIG"] = JSONValue.object(["baseUrl": .string(config.apiBase.absoluteString), "models": .array(models), "contextWindow": .number(Double(config.contextWindow)), "maxTokens": .number(Double(config.maxTokens))]).encodedString
-                environment["MILK_OMLX_TOKEN"] = try location.providerTokenOverride ?? OMLXCredentials.token(endpoint: config.endpoint) ?? "omlx"
-            }
+            let providerConfiguration = try providerConfigurationLoader()
+            try PiProviderSupport.apply(providerConfiguration, directory: location.dataProfile.directory, environment: &environment, profile: providerProfileIdentityLoader())
             var arguments = ["--mode", "rpc", "--offline", "-e", location.integration.path]
             if discoveryOnly {
                 arguments += ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--tools", "read,grep,find,ls"]
             } else if let file = session.sessionFile {
+                if location.dataProfile.ownership == .milkManaged {
+                    let path = URL(fileURLWithPath: file).resolvingSymlinksInPath().path
+                    guard path.hasPrefix(location.dataProfile.directory.resolvingSymlinksInPath().path + "/") else {
+                        throw AgentError.message("This session belongs to a different Pi profile. Select its original Pi setup to resume it.")
+                    }
+                }
                 guard FileManager.default.fileExists(atPath: file) else { throw AgentError.message("The saved Pi session file is missing. Reopen another session or create one.") }
                 arguments += ["--session", file]
             } else { arguments += ["--session-id", session.backendID, "--name", session.title] }
-            if configuration.omlx.enabled, let selected = configuration.omlx.defaultModel {
-                arguments += ["--provider", "omlx", "--model", selected]
-            }
             client.onRecord = { [weak self] in self?.consume($0) }
             client.onFailure = { [weak self] text in
                 guard let self else { return }
@@ -101,6 +102,9 @@ import UniformTypeIdentifiers
                 self.onEvent?(.failure(text))
             }
             try client.launch(executable: location.executable, arguments: arguments, workspace: workspace, environment: environment)
+            if providerConfiguration.provider == .local, let selected = providerConfiguration.local.selectedModel {
+                _ = try await client.request("set_model", ["provider": .string(PiProviderSupport.providerID), "modelId": .string(selected)])
+            }
             try await refresh(validatingHandshake: true)
             guard integrationReady else { throw PiCompatibilityPolicy.incompatible(version: version, "Pi did not load Milk's integration extension. This Pi version may be incompatible.") }
             let history = try await client.request("get_messages")
@@ -234,7 +238,9 @@ import UniformTypeIdentifiers
 
     private static func model(_ value: JSONValue) -> AgentModel? {
         guard let id = value["id"].string, let provider = value["provider"].string else { return nil }
-        return .init(provider: provider, modelID: id, name: value["name"].string ?? id, supportsImages: value["input"].array.compactMap(\.string).contains("image"))
+        return .init(provider: provider, modelID: id, name: value["name"].string ?? id, supportsImages: value["input"].array.compactMap(\.string).contains("image"),
+                     contextWindow: value["contextWindow"].number.flatMap { $0 > 0 && $0 < Double(Int.max) ? Int($0) : nil },
+                     maxTokens: value["maxTokens"].number.flatMap { $0 > 0 && $0 < Double(Int.max) ? Int($0) : nil }, supportsReasoning: value["reasoning"].boolValue)
     }
     private static func payload(_ prompt: AgentPrompt, model: AgentModel?) async throws -> [String: JSONValue] {
         try await Task.detached(priority: .userInitiated) {

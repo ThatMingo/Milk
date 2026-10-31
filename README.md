@@ -20,7 +20,7 @@ The current development version is **0.7.0**, targeting **Apple Silicon and macO
 - **Preview:** WebKit pages, local static HTML and project development servers.
   Framework previews use the project's own tools and dependencies.
 - **Settings:** appearance/editor preferences, agent installation management and
-  provider configuration.
+  agent-owned provider configuration.
 - **Native Milk extensions:** trusted `.milkext` packages can add UI, commands
   and services through MilkExtensionKit.
 
@@ -36,13 +36,16 @@ installations. Pi uses native RPC through Milk's compiled `PiAdapter`; upstream
 Pi is not patched. The current adapter supports **Pi 1.4.0**.
 
 Managed executable revisions live outside Milk.app. Existing installations remain
-externally owned. Executable ownership is separate from Pi's normal user data,
-configuration, authentication and sessions; removing managed code preserves those
-data. Milk does not silently select an executable from PATH or fall back to an
+externally owned and use the existing Pi setup. Installing Pi uses a separate
+Milk-owned profile at `~/Library/Application Support/Milk/Agents/pi/profile/`.
+Configuration, providers, extensions and native sessions in that profile survive
+runtime removal and are reused on reinstall. Existing Pi keeps its ordinary
+profile; settings changes there may also affect Pi outside Milk. Milk does not silently select an executable from PATH or fall back to an
 old bundled runtime. Additional agents are planned, not implemented.
 
 See [runtime architecture](RUNTIME.md) for installation, compatibility, lifecycle
-and data ownership details.
+and data ownership details. See [Pi profile ownership](docs/PI_PROFILE_OWNERSHIP.md)
+for the managed-versus-existing distinction.
 
 ## Requirements
 
@@ -84,11 +87,25 @@ commands, see [developer setup](docs/DEVELOPMENT.md).
    select a compatible Pi executable. Milk verifies compatibility before use.
 4. Configure a model provider if needed, then use Chat from your workspace.
 
-Pi retains its ordinary provider configuration. Milk also offers an optional
-**oMLX** connection in Settings → Agents: enter the external endpoint, optional
-Keychain-stored token and model settings, then test/save the connection. Milk does
-not install or run oMLX or manage its model weights. Milk has no OAuth/login setup
-flow; agent authentication remains Pi's responsibility.
+Milk manages coding agents; each coding agent owns its providers, models and
+provider authentication: **Milk → Pi → Provider → Model**. After installing or
+selecting Pi, open its configuration under **Settings → Agents → Pi**. Choose
+**Local** for a generic OpenAI-compatible server, enter its endpoint, choose None
+or a Keychain-stored API key, and use **Test Connection** to discover models. Then
+select a model and save. Local can point to oMLX, LM Studio, llama.cpp or another
+compatible server; Milk does not install or run those servers.
+
+Pi's supported `models.json` configuration handles the connection. Pi performs
+inference, and Chat gets model/thinking choices from Pi RPC. Undiscovered model
+capabilities stay unknown. Unknown context/output limits are omitted from Pi
+configuration; Pi uses its own supported defaults. Optional per-model Advanced
+overrides can supply otherwise unknown values. None authentication sends no
+Authorization header through Pi's supported request-header hook. Legacy shared preferences and credentials remain retained for recovery; active
+profile scopes do not automatically import ambiguous shared development state. Existing Pi providers remain available
+through **Pi configured providers**; hosted sign-in flows are not added here.
+
+See [agent provider settings](docs/AGENT_PROVIDER_SETTINGS.md) for the exact
+adapter contract, migration, secure storage, and Pi limitations.
 
 ## Extensions
 
@@ -102,8 +119,10 @@ See the [extension developer guide](docs/EXTENSION_DEVELOPMENT.md) and the
 
 The [source-publication audit](docs/PRE_GITHUB_AUDIT.md) found the prospective
 source snapshot ready. This is separate from a signed downloadable app release.
-[Agent final acceptance](docs/AGENT_PHASE_FINAL_ACCEPTANCE.md) records the completed
-156/156 regression pass and its limits.
+[Agent final acceptance](docs/AGENT_PHASE_FINAL_ACCEPTANCE.md) records the pre-provider-refactor
+156/156 regression baseline and its limits. The completed provider/profile refactor passed
+[final acceptance](docs/PROVIDER_FINAL_ACCEPTANCE.md): 183/183 regression tests,
+27/27 focused checks and 12/12 native acceptance assertions.
 
 - Developer ID signing, notarization, stapling and clean-machine release
   acceptance are not complete.

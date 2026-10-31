@@ -143,9 +143,9 @@ struct MainWindow: View {
                 Text(state.taskLabel)
             }.help(state.taskLabel)
             HStack(spacing: 5) {
-                Circle().fill(state.agent.selectedModel?.provider == "omlx" && !state.agent.omlxStatus.reachable ? MilkTheme.red : MilkTheme.green).frame(width: 6, height: 6)
+                Circle().fill(MilkTheme.green).frame(width: 6, height: 6)
                 Text("\(state.agent.selectedModel?.provider ?? "No provider") · \(state.selectedComposerModel?.name ?? "No model")")
-            }.help(state.agent.selectedModel?.provider == "omlx" ? state.agent.omlxStatus.detail : "Active Pi provider and model")
+            }.help("Active agent provider and model")
             Button { state.destination = "Git"; if !state.sidebarVisible { state.toggleSidebar() } } label: { Label(state.workspace.git.repository?.summary ?? (state.workspace.git.checked ? "No Git repository" : "Git"), systemImage: "point.3.connected.trianglepath.dotted") }.buttonStyle(.plain)
             if state.workspace.git.failure != nil { Image(systemName:"exclamationmark.circle").foregroundStyle(MilkTheme.red).help("Git error — open Git to review") }
             if let previewStatus = state.preview.statusLabel { Text(previewStatus) }

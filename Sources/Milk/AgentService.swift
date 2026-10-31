@@ -52,7 +52,6 @@ struct AgentWorkspaceState: Codable {
     @Published private(set) var approvals: [Int: [AgentApproval]] = [:]
     @Published private(set) var history: [SavedAgentSession] = []
     @Published private(set) var deletingSessionPath: String?
-    @Published private(set) var omlxStatus = OMLXStatus()
     @Published private(set) var runningSessions: Set<Int> = []
     @Published private(set) var pendingActions: Set<Int> = []
     private struct PreviewDecision {
@@ -79,7 +78,6 @@ struct AgentWorkspaceState: Codable {
     private var leases: [Int: AgentRuntimeLease] = [:]
     private var actionSessions: [UUID: Int] = [:]
     private var terminating = false
-    private var telemetryTask: Task<Void, Never>?
     private var nextID = 0
     private var restoring = false
     private var workspaceGeneration = UUID()
@@ -439,7 +437,6 @@ struct AgentWorkspaceState: Codable {
             try await lease.work.value
             try checkAction(id)
             if backendTokens[id] == activation { starts[id] = nil }
-            if telemetryTask == nil { startTelemetry() }
         } catch {
             if backendTokens[id] == activation {
                 backends[id]?.onEvent = nil; starts[id] = nil; backends[id] = nil
@@ -739,7 +736,7 @@ struct AgentWorkspaceState: Codable {
     }
     func reconnectIdleRuntimes() throws {
         if let reason=configurationChangeUnavailable { throw AgentError.message(reason) }
-        try updateConfiguration(configuration,token:nil)
+        try updateConfiguration(configuration)
     }
     /// Called inside the installation admission barrier. Recover/persist drafts before
     /// stopping owned work; retained session IDs, native files and caches are untouched.
@@ -752,38 +749,28 @@ struct AgentWorkspaceState: Codable {
         }
         runtimeStatuses = [:]; models = [:]; efforts = [:]; slashCommands = [:]; refreshingSlashCommands = [:]
     }
-    func updateConfiguration(_ configuration: AgentConfiguration, token: String?) throws {
+    func updateConfiguration(_ configuration: AgentConfiguration) throws {
         guard !terminating, pendingActions.subtracting(Set(starts.keys)).isEmpty, runningSessions.isEmpty, !sessions.contains(where: { [.running, .approval].contains($0.state) }) else { throw AgentError.message("Stop running sessions before changing runtime/provider configuration.") }
-        _ = try configuration.omlx.validated()
-        if let token { try OMLXCredentials.save(token, endpoint: configuration.omlx.endpoint) }
+        try persistAgentSettings { try configuration.save(defaults); self.configuration = configuration }
+    }
+    /// Adapters validate/persist their own settings inside the lifecycle admission check.
+    func applyAgentSettings(_ persistSettings: () throws -> Void) throws {
+        guard !terminating else { throw AgentError.message("Milk is shutting down.") }
+        guard !lifecycle.owned.values.contains(where: { $0.valid && $0.purpose != .conversation }) else { throw AgentError.message("Wait for agent inspection or maintenance to finish before changing settings.") }
+        if let reason = configurationChangeUnavailable { throw AgentError.message(reason) }
+        try persistAgentSettings(persistSettings)
+    }
+    /// Runtime selection may cancel a pending start under its existing stricter
+    /// running/approval guard; provider edits require a fully idle runtime above.
+    private func persistAgentSettings(_ persistSettings: () throws -> Void) throws {
         try workspace.persistNow()
-        try configuration.save(defaults); self.configuration = configuration
+        try persistSettings()
         for id in sessions.map(\.id) { invalidateRuntime(id) }
         lifecycle.invalidateAll()
         for id in conversations.keys { conversations[id]?.error = nil }
         runtimeStatuses = [:]; models = [:]; efforts = [:]; slashCommands=[:]; refreshingSlashCommands=[:]
         for index in sessions.indices where sessions[index].state == .error { sessions[index].state = .idle }
         if selectedSession >= 0, unavailableReason == nil { connect(selectedSession) }
-        if unavailableReason == nil { startTelemetry() }
-    }
-    func testOMLX(_ config: OMLXConfiguration, token: String?) async throws -> OMLXStatus {
-        try await OMLXService().inspect(config, token: token ?? OMLXCredentials.token(endpoint: config.endpoint))
-    }
-    private func startTelemetry() {
-        telemetryTask?.cancel()
-        guard enabled, configuration.omlx.enabled else { omlxStatus = .init(); return }
-        let config = configuration.omlx
-        telemetryTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    let status = try await OMLXService().inspect(config, token: OMLXCredentials.token(endpoint: config.endpoint))
-                    guard !Task.isCancelled else { return }; self?.omlxStatus = status
-                } catch {
-                    guard !Task.isCancelled else { return }; self?.omlxStatus = .init(detail: "oMLX unavailable: \(error.localizedDescription)", checkedAt: Date())
-                }
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-            }
-        }
     }
     /// App termination waits for conversation, pending and auxiliary resources.
     func shutdownAndWait() async -> Bool {
@@ -796,7 +783,7 @@ struct AgentWorkspaceState: Codable {
         lifecycle.invalidateAll()
         slashCommands=[:]; refreshingSlashCommands=[:]
         cancelPreviewDecisions(); previewAllowances = []; previewActivitySessions = [:]
-        workspaceGeneration = UUID(); backendTokens = [:]; actionTokens = [:]; telemetryTask?.cancel(); telemetryTask = nil
+        workspaceGeneration = UUID(); backendTokens = [:]; actionTokens = [:]
         for task in actionTasks.values { task.cancel() }; actionTasks = [:]; actionSessions = [:]
         starts = [:]; backends = [:]; leases = [:]
         approvals = [:]; editingApprovals = [:]; realQueue = [:]; pendingActions = []; runningSessions = []

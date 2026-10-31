@@ -139,7 +139,7 @@ final class AgentLifecycleTests: XCTestCase {
         try await until("pending start") { adapter.backends.first?.enteredStart == true }
         let old = adapter.backends[0]
         var config = agent.configuration; config.runtime = .external(URL(fileURLWithPath: "/tmp/lifecycle-config-fixture"))
-        try agent.updateConfiguration(config, token: nil)
+        try agent.updateConfiguration(config)
         XCTAssertTrue(old.stopped)
         old.startGate.release()
         try await until("pending startup cleanup") { old.enteredExit }

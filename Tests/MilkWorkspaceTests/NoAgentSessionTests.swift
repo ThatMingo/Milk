@@ -24,7 +24,6 @@ final class NoAgentSessionTests: XCTestCase {
         XCTAssertEqual(agent.currentSession?.metadata.id, session.metadata.id)
         XCTAssertTrue(agent.lifecycle.owned.isEmpty)
         XCTAssertEqual(fixture.probes, 0)
-        XCTAssertNil(agent.omlxStatus.checkedAt)
         agent.workspaceClosed(); workspace.sessionData = nil; try workspace.closeWorkspace()
     }
     @MainActor func testSelectedInstallationShowsAgentIdentityWithoutLaunchingIt() throws {
@@ -87,15 +86,15 @@ final class NoAgentSessionTests: XCTestCase {
         let fixture = try Phase6Fixture(self), executable = try fixture.executable()
         try fixture.manager.migrateLegacySelection(.external(executable))
         try await fixture.manager.verifyExternal(try XCTUnwrap(fixture.manager.store.state.selected))
-        var configuration = AgentConfiguration();configuration.omlx.enabled=true;configuration.omlx.defaultModel="retained-provider-model"
-        configuration.omlx.endpoint=URL(string:"http://127.0.0.1:1")!;try configuration.save(fixture.defaults)
+        var configuration = PiProviderConfiguration();configuration.provider = .local;configuration.local.selectedModel="retained-provider-model"
+        configuration.local.endpoint=URL(string:"http://127.0.0.1:1")!;try configuration.save(fixture.defaults)
         let workspace = try fixture.workspace(), root = try XCTUnwrap(workspace.workspace?.url)
         let first = AgentSession(id:7,title:"Retained",metadata:.init(agentID:.pi,workspace:SessionWorkspace(root)))
         let second = AgentSession(id:8,title:"Closed",metadata:.init(agentID:.pi,workspace:SessionWorkspace(root)))
         let conversation=SessionConversation(messages:[.init(id:"cached",role:"assistant",text:"cached content")],draft:"draft",queued:.init(text:"queued",attachments:[]))
         let payload=AgentWorkspaceState(sessions:[first],conversations:[7:conversation,8:.init(draft:"other draft")],nextID:9,archived:[second],selectedAgentID:.pi)
         let agent=AgentService(workspace:workspace,defaults:fixture.defaults,enabled:true,
-            adapter:PiAdapter(runtime:fixture.manager.runtime,installations:fixture.manager,configuration:{configuration}),lifecycle:fixture.manager.lifecycle)
+            adapter:PiAdapter(runtime:fixture.manager.runtime,installations:fixture.manager,configuration:{ .load(fixture.defaults) },providerConfiguration:{configuration}),lifecycle:fixture.manager.lifecycle)
         agent.restore(try JSONEncoder().encode(payload))
         let closed=try XCTUnwrap(agent.retainedSessions().first { $0.id == second.metadata.id })
         agent.openRetainedForBrowsing(closed);agent.selectForBrowsing(7)
@@ -103,7 +102,7 @@ final class NoAgentSessionTests: XCTestCase {
         XCTAssertTrue(fixture.manager.lifecycle.owned.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath:fixture.root.appendingPathComponent("launched").path))
         XCTAssertEqual(fixture.probes,1,"Only the explicitly requested verification runs")
-        XCTAssertNil(agent.omlxStatus.checkedAt);XCTAssertTrue(agent.runtimeStatuses.isEmpty)
+        XCTAssertTrue(agent.runtimeStatuses.isEmpty)
         XCTAssertEqual(agent.current.messages.first?.text,"cached content")
         XCTAssertTrue(agent.current.draft.contains("draft"));XCTAssertTrue(agent.current.draft.contains("queued"))
         XCTAssertEqual(agent.currentSession?.metadata.id,first.metadata.id);XCTAssertEqual(agent.currentSession?.id,7)

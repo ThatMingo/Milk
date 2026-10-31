@@ -6,7 +6,7 @@ import SwiftUI
     static let root=FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Slash-UI-"+UUID().uuidString)
     static let suite="Milk.SlashUI."+UUID().uuidString
     static func makeState() -> ShellState {
-        ShellState(persist:false,preferences:UserDefaults(suiteName:suite)!,agentAdapter:PiAdapter(runtime:PiRuntimeService(environmentOverrides:["PI_CODING_AGENT_DIR":root.appendingPathComponent("agent").path,"MILK_OMLX_TOKEN":"fixture"]),configuration:{ .load(UserDefaults(suiteName:suite)!) }),terminalService:TerminalService(shell:root.appendingPathComponent("test-shell").path))
+        ShellState(persist:false,preferences:UserDefaults(suiteName:suite)!,agentAdapter:PiAdapter(runtime:PiRuntimeService(environmentOverrides:["PI_CODING_AGENT_DIR":root.appendingPathComponent("agent").path]),configuration:{ .load(UserDefaults(suiteName:suite)!) },defaults:UserDefaults(suiteName:suite)!),terminalService:TerminalService(shell:root.appendingPathComponent("test-shell").path))
     }
     static func run(state: ShellState, window: NSWindow) async {
         let fm=FileManager.default, project=URL(fileURLWithPath:fm.currentDirectoryPath), output=project.appendingPathComponent("output/verification-slash-commands")
@@ -51,13 +51,16 @@ import SwiftUI
             try Data("---\nname: ui-review\ndescription: UI review skill\n---\nReview the supplied request.\n".utf8).write(to:agent.appendingPathComponent("skills/ui-review/SKILL.md"))
             try Data("#!/bin/sh\nexport HISTFILE=/dev/null PS1='' PS2=''\nexec /bin/bash --noprofile --norc -i\n".utf8).write(to:root.appendingPathComponent("test-shell"))
             try fm.setAttributes([.posixPermissions:0o700],ofItemAtPath:root.appendingPathComponent("test-shell").path)
-            server.executableURL=URL(fileURLWithPath:"/usr/bin/python3"); server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]; server.standardOutput=pipe; server.standardError=FileHandle.nullDevice
+            server.executableURL=URL(fileURLWithPath:"/usr/bin/python3"); server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]; server.standardOutput=pipe; server.standardError=FileHandle.nullDevice
             try server.run()
             guard let port=Int(String(decoding:pipe.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)) else { throw AgentError.message("Fixture did not start") }
             try state.workspace.openWorkspace(workspace)
-            var config=AgentConfiguration(); config.omlx.enabled=true; config.omlx.endpoint=URL(string:"http://127.0.0.1:\(port)")!
-            config.omlx.modelIDs=["milk-fixture","reasoning-fixture"]; config.omlx.reasoningModels=["reasoning-fixture"]; config.omlx.defaultModel="reasoning-fixture"
-            try state.agent.updateConfiguration(config,token:nil)
+            var provider = PiProviderConfiguration(); provider.provider = .local
+            provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
+            // Explicit deterministic fixture capacities, not application defaults.
+            provider.local.models = [.init(id: "milk-fixture", contextWindow: 64000, maxTokens: 4096, reasoning: false, images: false), .init(id: "reasoning-fixture", contextWindow: 64000, maxTokens: 4096, reasoning: true, images: false)]
+            provider.local.selectedModel = "reasoning-fixture"
+            try state.agent.applyAgentSettings { try provider.save(UserDefaults(suiteName: suite)!, key: PiProviderProfileIdentity(directory: root.appendingPathComponent("agent")).settingsKey) }
             try await wait("Pi ready") { state.agent.runtimeStatuses[state.selectedSession]?.phase == .ready }
             await settle()
             guard let scroll=find("milk.composer.input",window.contentView!) as? NSScrollView, let input=scroll.documentView as? ComposerInput.InputView else { throw AgentError.message("Composer not mounted") }

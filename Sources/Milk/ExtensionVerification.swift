@@ -27,7 +27,7 @@ import MilkLayout
             await state.nativeExtensions.setWorkspace(workspace)
             let package=project.appendingPathComponent("Examples/Extensions/OMLXStatusExample/build/OMLXStatusExample.milkext")
             let inspection=try state.nativeExtensions.inspect(package), id=inspection.manifest.id
-            server.executableURL=URL(fileURLWithPath:"/usr/bin/python3"); server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]; server.standardOutput=pipe; server.standardError=FileHandle.nullDevice
+            server.executableURL=URL(fileURLWithPath:"/usr/bin/python3"); server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]; server.standardOutput=pipe; server.standardError=FileHandle.nullDevice
             try server.run()
             guard let port=Int(String(decoding:pipe.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)) else { throw AgentError.message("Fixture did not start") }
             let dataRoot=state.nativeExtensions.dataURL(id); try fm.createDirectory(at:dataRoot,withIntermediateDirectories:true)

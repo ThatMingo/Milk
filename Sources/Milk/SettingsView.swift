@@ -62,7 +62,6 @@ struct SettingsContent: View {
                     do {try agent.updateDefaultPermission(mode)} catch {feedback=error.localizedDescription}
                 })) {Text("Autonomous").tag(ComposerPermissionMode.autonomous);Text("Approval").tag(ComposerPermissionMode.approval)}.labelsHidden().pickerStyle(.segmented)
             }
-            SettingsRow(title:"Default model",subtitle:"Configure the provider in Settings → Agents.") {Text(agent.configuration.omlx.enabled ? agent.configuration.omlx.defaultModel ?? "Not selected":"Pi configured default").lineLimit(1)}
             SettingsNote(text:"The composer controls the current session's model, reasoning effort and permissions.")
         }
     }
@@ -111,11 +110,9 @@ struct SettingsContent: View {
             settingGroup("Diagnostics") {
                 SettingsNote(text:"Pi data: \(state.extensions.agentDirectory.path)").textSelection(.enabled)
                 SettingsNote(text:"Pi executable: \(resolvedPi)").textSelection(.enabled)
-                SettingsNote(text:"oMLX: \(agent.omlxStatus.detail)")
-                SettingsNote(text:"Endpoint: \(agent.configuration.omlx.endpoint.absoluteString)").textSelection(.enabled)
                 SettingsNote(text:"Preview temporary root: \(FileManager.default.temporaryDirectory.appendingPathComponent("dev.milk/Preview-v1").path)").textSelection(.enabled)
                 SettingsActionRow { Button("Copy Diagnostics") {
-                    let text="Milk \(updates.currentVersion)\nPi \(state.agentInstallations.store.state.selected == nil ? "not installed" : "selected")\nRuntime: \(resolvedPi)\nPi data: \(state.extensions.agentDirectory.path)\noMLX endpoint: \(agent.configuration.omlx.endpoint.absoluteString)\noMLX reachable: \(agent.omlxStatus.reachable)\nGit: /usr/bin/git\nPreview: \(state.preview.state.rawValue)\nUpdates: \(updates.state.label)"
+                    let text="Milk \(updates.currentVersion)\nPi \(state.agentInstallations.store.state.selected == nil ? "not installed" : "selected")\nRuntime: \(resolvedPi)\nPi data: \(state.extensions.agentDirectory.path)\nGit: /usr/bin/git\nPreview: \(state.preview.state.rawValue)\nUpdates: \(updates.state.label)"
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string); feedback="Diagnostics copied. Credentials are excluded."
                 } }
             }
@@ -144,59 +141,6 @@ struct SettingsContent: View {
         let alert=NSAlert(); alert.messageText=title; alert.informativeText=text; alert.addButton(withTitle:"Reset"); alert.addButton(withTitle:"Cancel")
         if alert.runModal() == .alertFirstButtonReturn { action() }
     }
-}
-
-struct PiSettingsContent:View {
-    @ObservedObject var agent:AgentService
-    @StateObject private var model:RuntimeSettingsModel
-    @State private var feedback=""
-    init(agent:AgentService) { self.agent=agent; _model=StateObject(wrappedValue:RuntimeSettingsModel(agent:agent)) }
-    var body:some View {
-        VStack(alignment:.leading,spacing:SettingsMetrics.sectionSpacing) {
-            settingGroup("Provider") {
-                SettingsRow(title:"Provider") {
-                    Picker("Provider",selection:Binding(get:{model.providerID},set:{model.selectProvider($0)})) { ForEach(PiProviderID.allCases) { Text($0.title).tag($0) } }.labelsHidden().fixedSize()
-                }
-                SettingsRow(title:"Use selected provider",subtitle:"When off, Pi uses its own provider configuration.") { Toggle("Use selected provider",isOn:Binding(get:{model.providerEnabled},set:{model.providerEnabled=$0})).labelsHidden().tint(MilkTheme.green) }
-                switch model.providerAdapter.configurationKind {
-                case .omlx: OMLXProviderConfigurationRows(model:model,agent:agent)
-                }
-            }
-            settingGroup("New sessions") {
-                SettingsRow(title:"Default agent mode",subtitle:"Approval asks before commands and file changes.") {
-                    Picker("Default agent mode",selection:Binding(get:{agent.configuration.defaultPermission},set:{ mode in
-                        do {try agent.updateDefaultPermission(mode);model.configuration.defaultPermission=mode} catch {feedback=error.localizedDescription}
-                    })) {Text("Autonomous").tag(ComposerPermissionMode.autonomous);Text("Approval").tag(ComposerPermissionMode.approval)}.labelsHidden().pickerStyle(.segmented)
-                }
-            }
-            HStack { Spacer(); Button("Save Provider Settings") {model.configuration.defaultPermission=agent.configuration.defaultPermission;model.save()}.disabled(model.busy || agent.configurationChangeUnavailable != nil) }
-            if let reason=agent.configurationChangeUnavailable {detail(reason)}
-            if !model.result.isEmpty {detail(model.result)}
-            if !feedback.isEmpty {detail(feedback)}
-        }
-    }
-}
-struct OMLXProviderConfigurationRows:View {
-    @ObservedObject var model:RuntimeSettingsModel
-    @ObservedObject var agent:AgentService
-    private var status:ProviderInspection { model.connectionStatus ?? ProviderInspection(omlx:agent.omlxStatus) }
-    var body:some View {
-        SettingsRows {
-        SettingsRow(title:"Endpoint") { TextField("http://host:port",text:$model.endpoint).textFieldStyle(.roundedBorder) }
-        SettingsRow(title:"Status") { Text(status.checkedAt == nil && model.connectionStatus == nil ? "Not tested":status.reachable ? (status.authenticated == false ? "Authentication required":"Reachable"):"Unreachable").foregroundStyle(status.reachable ? MilkTheme.green:MilkTheme.muted) }
-        SettingsRow(title:"Authentication",subtitle:model.replaceToken ? (model.token.isEmpty ? "Token will be removed on save.":"Replacement pending save."):model.tokenStored ? "Token stored in Keychain.":"Optional token, if required by the server.") {
-            HStack(spacing:6) { SecureField("Unchanged",text:Binding(get:{model.token},set:{model.editToken($0)})).textFieldStyle(.roundedBorder);Button("Remove") {model.editToken("")} }
-        }
-        SettingsRow(title:"Model",subtitle:"Models are supplied by the external provider.") {
-            if model.detected.isEmpty {TextField("Model ID",text:$model.model).textFieldStyle(.roundedBorder)}
-            else { Picker("Model",selection:$model.model) {Text("Choose…").tag("");ForEach(model.detected,id:\.self){Text($0).tag($0)}}.labelsHidden() }
-        }.onChange(of:model.model) {_,value in model.reasoning=model.configuration.omlx.reasoningModels.contains(value);model.images=model.configuration.omlx.imageModels.contains(value)}
-        SettingsRow(title:"Reasoning support",subtitle:"Declare only if supported by the selected model.") {Toggle("Reasoning support",isOn:$model.reasoning).labelsHidden().tint(MilkTheme.green)}
-        SettingsRow(title:"Image support") {Toggle("Image support",isOn:$model.images).labelsHidden().tint(MilkTheme.green)}
-        SettingsRow(title:"Connection",subtitle:"Milk connects to this external server; it does not run it or manage its models.") {Button(model.busy ? "Testing…":"Test Connection") {model.testConnection()}.disabled(model.busy)}
-        ForEach(status.models.filter { $0.state != nil || $0.loaded != nil }) {item in SettingsRow(title:item.id) {Text(item.state ?? (item.loaded == true ? "Loaded":"Not loaded")).foregroundStyle(MilkTheme.muted)} }
-    }
-}
 }
 
 func detail(_ value:String) -> some View { Text(value).font(.system(size:11.5)).foregroundStyle(MilkTheme.muted).fixedSize(horizontal:false,vertical:true) }

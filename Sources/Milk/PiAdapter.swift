@@ -13,17 +13,23 @@ extension AgentID { static let pi = AgentID(rawValue: "pi") }
         .compactionNotifications, .retryNotifications, .previewInspection
     ])
     var descriptor: AgentDescriptor { Self.descriptor }
+    var settingsProvider: (any AgentSettingsProviding)? { self }
     var hasSelectedInstallation: Bool {
         if let installations { return installations.store.state.selected != nil }
         return !configuration().runtime.isBundled || runtime.allowsBundledFixture
     }
     var fileSessionHistory: (any AgentFileSessionHistory)? { PiSessionService() }
+    let defaults: UserDefaults
+    let providerConfiguration: @MainActor () throws -> PiProviderConfiguration
     let runtime: PiRuntimeService
     let nativeExtensions: NativeExtensionManager?
     let installations: PiInstallationManager?
     let configuration: @MainActor () -> AgentConfiguration
     init(runtime: PiRuntimeService = PiRuntimeService(), nativeExtensions: NativeExtensionManager? = nil, installations: PiInstallationManager? = nil,
-         configuration: @escaping @MainActor () -> AgentConfiguration = { .load(.standard) }) {
+         configuration: @escaping @MainActor () -> AgentConfiguration = { .load(.standard) },
+         defaults: UserDefaults = .standard, providerConfiguration: (@MainActor () throws -> PiProviderConfiguration)? = nil) {
+        self.defaults = defaults
+        self.providerConfiguration = providerConfiguration ?? { try PiProviderConfiguration.load(defaults, key: installations?.providerSettingsKey ?? PiProfileIdentitySupport.identity(runtime: runtime, installations: nil, mode: configuration().runtime).settingsKey) }
         self.runtime = runtime; self.nativeExtensions = nativeExtensions; self.configuration = configuration
         self.installations = installations
     }
@@ -57,7 +63,7 @@ extension AgentID { static let pi = AgentID(rawValue: "pi") }
     func makeBackend(context: AgentBackendContext) -> any AgentBackend {
         var config = configuration(); config.defaultPermission = context.permission
         return PiBackend(runtime: runtime, discoveryOnly: context.purpose == .previewInspection,
-                         nativeExtensions: nativeExtensions, configuration: config, lifecycle: context.lifecycle,
+                         nativeExtensions: nativeExtensions, configuration: config, providerConfigurationLoader: providerConfiguration, providerProfileIdentityLoader: { try PiProfileIdentitySupport.identity(runtime: runtime, installations: installations, mode: configuration().runtime).rawValue }, lifecycle: context.lifecycle,
                          resolveLaunch: { mode, owner in
                             if let installations { return try await installations.resolve(legacy: mode, owner: owner) }
                             return try await PiLaunchResolver(runtime: runtime).resolve(mode, lifecycle: owner)
@@ -88,7 +94,7 @@ extension AgentID { static let pi = AgentID(rawValue: "pi") }
 
 extension AgentRegistry {
     static func standard(defaults: UserDefaults = .standard, nativeExtensions: NativeExtensionManager? = nil, installations: PiInstallationManager? = nil) -> Self {
-        .init(adapters: [PiAdapter(nativeExtensions: nativeExtensions, installations: installations, configuration: { .load(defaults) })], defaultAgentID: .pi)
+        .init(adapters: [PiAdapter(nativeExtensions: nativeExtensions, installations: installations, configuration: { .load(defaults) }, defaults: defaults)], defaultAgentID: .pi)
     }
 }
 

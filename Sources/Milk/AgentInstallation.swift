@@ -15,7 +15,7 @@ struct AgentInstallationRecord: Identifiable, Codable, Equatable {
     var executableSHA256: String? = nil
 }
 struct AgentDataProfile: Equatable {
-    enum Ownership { case sharedExisting, ephemeralMilk }
+    enum Ownership { case sharedExisting, milkManaged, ephemeralMilk }
     let directory: URL
     let ownership: Ownership
 }

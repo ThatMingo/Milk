@@ -64,7 +64,7 @@ import CryptoKit
 final class AgentManagerSettingsTests: XCTestCase {
     @MainActor func testBundledMigrationIsMetadataOnlyIdempotentAndPreservesProviderConfiguration() throws {
         let fixture = try Phase6Fixture(self)
-        var config = AgentConfiguration(); config.omlx.endpoint = URL(string:"http://127.0.0.1:9999")!;config.omlx.defaultModel = "retain-model"
+        let config = AgentConfiguration()
         try config.save(fixture.defaults); let bytes = fixture.defaults.data(forKey:AgentConfiguration.key)
         try fixture.manager.migrateLegacySelection(config.runtime)
         XCTAssertFalse(fixture.manager.store.state.useLegacyRuntime);XCTAssertNil(fixture.manager.store.state.selected)
@@ -137,17 +137,19 @@ final class AgentManagerSettingsTests: XCTestCase {
             adapter:PiAdapter(runtime:fixture.manager.runtime,installations:fixture.manager),lifecycle:fixture.manager.lifecycle)
         agent.restore(nil)
         let endpoint = URL(string:"http://127.0.0.1:9999/phase6-"+UUID().uuidString)!
-        defer { try? OMLXCredentials.save("",endpoint:endpoint) }
-        try OMLXCredentials.save("retain-phase6-secret",endpoint:endpoint)
-        var config = agent.configuration;config.omlx.endpoint=endpoint;try agent.updateConfiguration(config,token:nil)
+        let adapter = PiAdapter(runtime:fixture.manager.runtime,installations:fixture.manager,defaults:fixture.defaults)
+        let profile = try adapter.providerProfileIdentity.rawValue
+        defer { try? AgentProviderCredentials.save("",agent:.pi,provider:"local",endpoint:endpoint,profile:profile) }
+        try AgentProviderCredentials.save("retain-phase6-secret",agent:.pi,provider:"local",endpoint:endpoint,profile:profile)
+        var config = PiProviderConfiguration();config.local.endpoint=endpoint;try config.save(fixture.defaults,key:fixture.manager.providerSettingsKey)
         let state = fixture.manager.store.state
-        let model = RuntimeSettingsModel(agent:agent);model.model="new-provider-model";model.save()
+        let model = PiSettingsModel(agent:agent,adapter:adapter);model.configuration.provider = .local;model.model="new-provider-model";model.context="64000";model.output="4096";model.save()
         let deadline=Date().addingTimeInterval(3)
         while model.busy && Date()<deadline { await Task.yield() }
         XCTAssertFalse(model.busy);XCTAssertTrue(model.result.hasPrefix("Saved."),model.result)
         XCTAssertEqual(fixture.manager.store.state,state);XCTAssertEqual(fixture.probes,0)
-        XCTAssertEqual(AgentConfiguration.load(fixture.defaults).omlx.defaultModel,"new-provider-model")
-        XCTAssertEqual(try OMLXCredentials.token(endpoint:endpoint),"retain-phase6-secret")
+        XCTAssertEqual(try adapter.providerConfiguration().local.selectedModel,"new-provider-model")
+        XCTAssertEqual(try AgentProviderCredentials.token(agent:.pi,provider:"local",endpoint:endpoint,profile:profile),"retain-phase6-secret")
         XCTAssertTrue(fixture.manager.lifecycle.owned.isEmpty)
         agent.shutdown();workspace.sessionData=nil;try workspace.closeWorkspace()
     }

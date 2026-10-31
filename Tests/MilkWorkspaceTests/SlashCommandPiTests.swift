@@ -25,13 +25,13 @@ final class SlashCommandPiTests: XCTestCase {
         try Data("---\nname: slash-review\ndescription: Review skill fixture\n---\nRead the requested project carefully.\n".utf8).write(to:agent.appendingPathComponent("skills/slash-review/SKILL.md"))
         try Data(#"{"enableSkillCommands":true}"#.utf8).write(to:agent.appendingPathComponent("settings.json"))
         let server=Process(), output=Pipe(); server.executableURL=URL(fileURLWithPath:"/usr/bin/python3")
-        server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]; server.standardOutput=output; server.standardError=FileHandle.nullDevice
+        server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]; server.standardOutput=output; server.standardError=FileHandle.nullDevice
         try server.run(); defer { if server.isRunning { server.terminate() } }
         let port=try XCTUnwrap(Int(String(decoding:output.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)))
-        let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agent.path,"MILK_OMLX_TOKEN":"fixture","PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
-        let backend=PiBackend(runtime:runtime); defer { backend.shutdown() }
-        var configuration=AgentConfiguration(); configuration.omlx.enabled=true; configuration.omlx.endpoint=URL(string:"http://127.0.0.1:\(port)")!
-        configuration.omlx.modelIDs=["milk-fixture"]; configuration.omlx.defaultModel="milk-fixture"
+        let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agent.path,"PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
+        var configuration = AgentConfiguration(); var provider = PiProviderConfiguration(); provider.provider = .local; provider.local.endpoint=URL(string:"http://127.0.0.1:\(port)")!
+        provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel="milk-fixture"
+        let backend=PiBackend(runtime:runtime, providerConfiguration:provider); defer { backend.shutdown() }
         var catalog:[AgentCommand]=[], notices:[String]=[], failures:[String]=[], messages:[AgentMessage]=[], settled=0
         backend.onEvent={ event in
             switch event {

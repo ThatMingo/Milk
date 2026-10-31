@@ -9,6 +9,16 @@ Start with the README for an overview and Developer setup to build from source.
   optional upstream Pi fixtures.
 - [Runtime architecture](../RUNTIME.md): compiled adapter, installation selection,
   lifecycle, sessions and code/data ownership.
+- [Provider/profile final acceptance](PROVIDER_FINAL_ACCEPTANCE.md): final clean
+  build, full regression, native acceptance and merge-gate evidence.
+- [Provider/profile Phase 3](PROVIDER_PROFILE_PHASE_3.md): focused real-Pi
+  integration, switching/retention, Settings wiring and architecture audit.
+- [Local provider Phase 2](LOCAL_PROVIDER_PHASE_2.md): omitted model limits and
+  true no-auth transport through pinned Pi.
+- [Pi profile ownership](PI_PROFILE_OWNERSHIP.md): managed isolation versus Existing
+  Pi setup, retention and focused verification.
+- [Agent provider settings](AGENT_PROVIDER_SETTINGS.md): current ownership, Pi Local
+  setup, adapter settings contract, capability sources and safe migration.
 - [Extension development](EXTENSION_DEVELOPMENT.md): MilkExtensionKit API 1,
   native packages, trust, services and the independent example.
 - [Agent final acceptance](AGENT_PHASE_FINAL_ACCEPTANCE.md): completed technical

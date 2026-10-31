@@ -6,7 +6,7 @@ import SwiftUI
     private static let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Agent-UI-" + UUID().uuidString)
     private static let suite = "Milk.AgentUIVerification." + UUID().uuidString
     static func makeState() -> ShellState {
-        ShellState(persist: false, preferences: UserDefaults(suiteName: suite)!, agentAdapter: PiAdapter(runtime: PiRuntimeService(environmentOverrides: ["PI_CODING_AGENT_DIR": temporary.appendingPathComponent("agent").path, "MILK_OMLX_TOKEN": "fixture"]), configuration: { .load(UserDefaults(suiteName: suite)!) }))
+        ShellState(persist: false, preferences: UserDefaults(suiteName: suite)!, agentAdapter: PiAdapter(runtime: PiRuntimeService(environmentOverrides: ["PI_CODING_AGENT_DIR": temporary.appendingPathComponent("agent").path]), configuration: { .load(UserDefaults(suiteName: suite)!) }, defaults: UserDefaults(suiteName: suite)!))
     }
     static func run(state: ShellState, window: NSWindow) async {
         let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("output/verification-sessions-agent")
@@ -58,7 +58,7 @@ import SwiftUI
             try FileManager.default.createDirectory(at: temporary.appendingPathComponent("agent"), withIntermediateDirectories: true)
             let pipe = Pipe()
             server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            server.arguments = ["-u", URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]
+            server.arguments = ["-u", URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]
             server.standardOutput = pipe; server.standardError = FileHandle.nullDevice
             if CommandLine.arguments.contains("--interactive-chat-check") {
                 var environment = ProcessInfo.processInfo.environment; environment["MILK_FIXTURE_APPROVAL_DELAY"] = "12"; server.environment = environment
@@ -68,10 +68,12 @@ import SwiftUI
             guard Int(port) != nil else { throw AgentError.message("Could not launch the loopback provider fixture") }
             try state.workspace.openWorkspace(root)
             state.destination = "Sessions"
-            var config = AgentConfiguration()
-            config.omlx.enabled = true; config.omlx.endpoint = URL(string: "http://127.0.0.1:\(port)")!
-            config.omlx.modelIDs = ["milk-fixture"]; config.omlx.defaultModel = "milk-fixture"
-            try state.agent.updateConfiguration(config, token: nil)
+            var provider = PiProviderConfiguration(); provider.provider = .local
+            provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
+            // Explicit deterministic fixture capacities, not application defaults.
+            provider.local.models = [.init(id: "milk-fixture", contextWindow: 64000, maxTokens: 4096, reasoning: false, images: false), .init(id: "reasoning-fixture", contextWindow: 64000, maxTokens: 4096, reasoning: true, images: false)]
+            provider.local.selectedModel = "milk-fixture"
+            try state.agent.applyAgentSettings { try provider.save(UserDefaults(suiteName: suite)!, key: PiProviderProfileIdentity(directory: temporary.appendingPathComponent("agent")).settingsKey) }
             try await wait("bundled runtime") { state.agent.runtimeStatuses[state.selectedSession]?.phase == .ready }
             check(state.agent.runtimeStatuses[state.selectedSession]?.version == "1.4.0", "Packaged standalone Pi launches and reports its pinned version")
             check(state.selectedComposerModel?.name == "milk-fixture" && state.selectedComposerModel?.efforts.map(\.id) == ["off"], "Composer receives real provider model and effort capabilities")
@@ -162,8 +164,8 @@ import SwiftUI
             check(!FileManager.default.fileExists(atPath: saved.path) && state.selectedSession != first, "Delete removes real saved Pi history after exit and moves Chat selection")
             await settle(); capture("deleted-session")
             try state.workspace.openFile(input, pinned: true)
-            var invalid = config; invalid.runtime = .external(temporary.appendingPathComponent("missing-pi"))
-            try state.agent.updateConfiguration(invalid, token: nil)
+            var invalid = state.agent.configuration; invalid.runtime = .external(temporary.appendingPathComponent("missing-pi"))
+            try state.agent.updateConfiguration(invalid)
             try await wait("external launch error") { state.agent.current.error != nil }
             check(state.workspace.activeBuffer?.text == "Real grouped context\n", "Backend failure leaves the native workspace/editor usable")
             await settle(); capture("runtime-error")

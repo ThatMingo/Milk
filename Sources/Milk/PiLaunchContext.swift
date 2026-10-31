@@ -9,7 +9,6 @@ struct PiLaunchContext {
     let integration: URL
     let supportPaths: [URL]
     let environment: [String: String]
-    let providerTokenOverride: String?
     let dataProfile: AgentDataProfile
     let compatibility: AgentCompatibilityResult
     var bundled: Bool { installation.ownership == .applicationBundle }
@@ -30,9 +29,10 @@ struct PiLaunchResolver {
     @MainActor func resolve(_ mode: PiRuntimeMode, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil) async throws -> PiLaunchContext {
         try await resolve(installation(for: mode), lifecycle: lifecycle, probeDirectory: probeDirectory)
     }
-    @MainActor func resolve(_ installation: AgentInstallationRecord, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil) async throws -> PiLaunchContext {
+    @MainActor func resolve(_ installation: AgentInstallationRecord, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil, profile: AgentDataProfile? = nil) async throws -> PiLaunchContext {
         var version: String?
         do {
+            if installation.ownership == .milkManaged, probeDirectory == nil, profile?.ownership != .milkManaged { throw AgentError.message("Managed Pi requires its Milk-owned profile.") }
             guard installation.agentID == .pi else { throw AgentError.message("This installation is not Pi.") }
             AgentResourceOwnership.current?.associate(installation)
             let mode: PiRuntimeMode = installation.ownership == .applicationBundle ? .bundled : .external(installation.executable)
@@ -62,6 +62,7 @@ struct PiLaunchResolver {
                 support = paths
             }
             environment["PATH"] = (support.map(\.path) + [environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"]).joined(separator: ":")
+            if let profile { environment["PI_CODING_AGENT_DIR"] = profile.directory.path }
             environment["PI_OFFLINE"] = "1"
             let detected = try await runtime.version(of: location.executable, lifecycle: lifecycle, environment: environment, directory: probeDirectory)
             version = detected; try Task.checkCancellation()
@@ -70,12 +71,10 @@ struct PiLaunchResolver {
             }
             let compatibility = PiCompatibilityPolicy.evaluate(version: detected)
             try PiCompatibilityPolicy.requireSupportedVersion(compatibility)
-            let dataDirectory = environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent")
+            let selectedProfile = profile ?? PiProfile.existing(environment: environment)
             return .init(installation: installation, executable: location.executable, version: detected,
                          integration: location.integration, supportPaths: support, environment: environment,
-                         providerTokenOverride: runtime.environmentOverrides["MILK_OMLX_TOKEN"],
-                         dataProfile: .init(directory: dataDirectory, ownership: probeDirectory == nil ? .sharedExisting : .ephemeralMilk), compatibility: compatibility)
+                         dataProfile: probeDirectory == nil ? selectedProfile : .init(directory: selectedProfile.directory, ownership: .ephemeralMilk), compatibility: compatibility)
         } catch is CancellationError { throw CancellationError() }
         catch let error as AgentCompatibilityError { throw error }
         catch { throw AgentCompatibilityError(result: PiCompatibilityPolicy.result(.invalidRuntime, version: version, detail: error.localizedDescription)) }

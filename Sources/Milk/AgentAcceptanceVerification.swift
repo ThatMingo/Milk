@@ -16,7 +16,7 @@ import AppKit
             try Data("acceptance editor".utf8).write(to: root.appendingPathComponent("note.txt"))
             try state.workspace.openFile(root.appendingPathComponent("note.txt"), pinned: true)
             for _ in 0..<20 { await Task.yield() }
-            check(state.agent.lifecycle.owned.isEmpty && state.agent.omlxStatus.checkedAt == nil, "Fresh app workspace/editor restore starts no Pi/provider polling")
+            check(state.agent.lifecycle.owned.isEmpty, "Fresh app workspace/editor restore starts no Pi runtime")
             check(state.agent.unavailableReason != nil, "No-agent action has install/unavailable state")
             check(state.agent.sessionsForBrowsing(.allProjects).count >= 1, "Retained metadata is visible without Pi")
             check(state.agentInstallations.store.state.managed.isEmpty, "No silent installation")
@@ -46,7 +46,7 @@ import AppKit
                 check(manager.store.state.selected == id, "Official managed download/hash/extraction/native probe/activation")
                 _ = try await manager.verify(id)
                 let launch = try XCTlessRecord(manager)
-                let backend = PiBackend(runtime: runtime, resolveLaunch: { _, coordinator in try await PiLaunchResolver(runtime: runtime).resolve(launch, lifecycle: coordinator) })
+                let backend = PiBackend(runtime: runtime, resolveLaunch: { _, coordinator in try await manager.resolve(legacy: .bundled, owner: coordinator) })
                 try await backend.start(workspace: root, session: .init(id: 2, title: "Managed acceptance"))
                 try await backend.shutdownAndWait()
                 _ = try await manager.repair(id)

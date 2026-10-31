@@ -21,13 +21,12 @@ final class AgentTests: XCTestCase {
         let config = AgentConfiguration()
         XCTAssertEqual(config.runtime, .bundled)
         XCTAssertEqual(try JSONDecoder().decode(AgentConfiguration.self, from: JSONEncoder().encode(config)), config)
-        var omlx = OMLXConfiguration(); omlx.endpoint = URL(string: "http://127.0.0.1:8000/v1")!
-        XCTAssertEqual(omlx.apiBase.absoluteString, "http://127.0.0.1:8000/v1")
-        XCTAssertEqual(omlx.serverBase.absoluteString, "http://127.0.0.1:8000/")
-        omlx.endpoint = URL(string: "http://127.0.0.1:8000/v1/")!
-        XCTAssertEqual(omlx.apiBase.absoluteString, "http://127.0.0.1:8000/v1")
-        omlx.endpoint = URL(string: "file:///tmp/config")!; XCTAssertThrowsError(try omlx.validated())
-        omlx.endpoint = URL(string: "https://secret:password@example.com")!; XCTAssertThrowsError(try omlx.validated())
+        var local = PiLocalConfiguration(); local.endpoint = URL(string: "http://127.0.0.1:8000/v1")!
+        XCTAssertEqual(local.apiBase.absoluteString, "http://127.0.0.1:8000/v1")
+        local.endpoint = URL(string: "http://127.0.0.1:8000/v1/")!
+        XCTAssertEqual(local.apiBase.absoluteString, "http://127.0.0.1:8000/v1")
+        local.endpoint = URL(string: "file:///tmp/config")!; XCTAssertThrowsError(try local.validated())
+        local.endpoint = URL(string: "https://secret:password@example.com")!; XCTAssertThrowsError(try local.validated())
     }
     func testChangedFilesCountsAndSharedIgnoreTraversal() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

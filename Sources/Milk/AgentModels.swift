@@ -84,6 +84,9 @@ struct AgentModel: Identifiable, Equatable {
     var modelID: String
     var name: String
     var supportsImages: Bool
+    var contextWindow: Int? = nil
+    var maxTokens: Int? = nil
+    var supportsReasoning: Bool? = nil
 }
 struct AgentSnapshot {
     var sessionFile: String?

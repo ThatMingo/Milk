@@ -29,14 +29,18 @@ struct PiExtensionRecord: Identifiable, Equatable {
     @Published private(set) var busy=false
     @Published private(set) var notice:String?
     private var runtimeProblems:[String]=[]
-    let agentDirectory:URL
+    private let existingAgentDirectory:URL
+    var agentDirectory: URL {
+        guard let installations else { return existingAgentDirectory }
+        return (try? installations.selectedProfile().directory) ?? installations.store.root.appendingPathComponent("profile-unavailable")
+    }
     var runtimeSelection: @MainActor () -> PiRuntimeMode = { .bundled }
     var lifecycle: AgentLifecycleCoordinator?
     var installations: PiInstallationManager?
     let runtime:PiRuntimeService
     private var workspace:URL?
     init(agentDirectory:URL? = nil,runtime:PiRuntimeService = PiRuntimeService()) {
-        self.agentDirectory=agentDirectory ?? ProcessInfo.processInfo.environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath:($0 as NSString).expandingTildeInPath) } ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent")
+        self.existingAgentDirectory=agentDirectory ?? ProcessInfo.processInfo.environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath:($0 as NSString).expandingTildeInPath) } ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent")
         self.runtime=runtime
     }
     func reportRuntimeProblem(_ text:String) {

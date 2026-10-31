@@ -43,11 +43,12 @@ final class PiInstallationTests: XCTestCase {
         let managed = AgentInstallationRecord(id: .init(rawValue: "test-managed-candidate"), agentID: .pi, ownership: .milkManaged,
             source: .milkApproved, executable: executable, expectedVersion: "1.4.0", executableSHA256: digest)
         let before = try ordinarySnapshot(root)
-        let launch = try await resolver.resolve(managed, lifecycle: owner)
+        let profile = try PiProfile.managed(store: .init(root: root.appendingPathComponent("owned")))
+        let launch = try await resolver.resolve(managed, lifecycle: owner, profile: profile)
         XCTAssertEqual(launch.installation.ownership, .milkManaged)
         XCTAssertNotEqual(launch.installation.id, external.id)
-        XCTAssertEqual(launch.dataProfile.directory.path, root.appendingPathComponent("ordinary").path)
-        XCTAssertEqual(launch.dataProfile.ownership, .sharedExisting)
+        XCTAssertEqual(launch.dataProfile.directory, profile.directory)
+        XCTAssertEqual(launch.dataProfile.ownership, .milkManaged)
         XCTAssertEqual(try ordinarySnapshot(root), before)
         do {
             _ = try await resolver.resolve(.external(root.appendingPathComponent("missing")), lifecycle: owner)

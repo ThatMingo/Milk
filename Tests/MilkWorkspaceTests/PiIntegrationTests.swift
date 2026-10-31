@@ -13,16 +13,16 @@ final class PiIntegrationTests: XCTestCase {
         try Data(#"{"scripts":{"preview:local":"vite"}}"#.utf8).write(to: root.appendingPathComponent("web/package.json"))
         let server = Process(), output = Pipe()
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]
+        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]
         server.standardOutput = output; server.standardError = FileHandle.nullDevice
         try server.run(); defer { if server.isRunning { server.terminate() } }
         let port = try XCTUnwrap(Int(String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
-        let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": agentDir.path, "MILK_OMLX_TOKEN": "fixture", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
-        var configuration = AgentConfiguration()
+        let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": agentDir.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        var configuration = AgentConfiguration(); var provider = PiProviderConfiguration()
         configuration.defaultPermission = .autonomous // Discovery remains read-only in this mode too.
-        configuration.omlx.enabled = true; configuration.omlx.endpoint = URL(string: "http://127.0.0.1:\(port)")!
-        configuration.omlx.modelIDs = ["milk-fixture"]; configuration.omlx.defaultModel = "milk-fixture"
-        let backend = PiAdapter(runtime: runtime, configuration: { configuration }).makeBackend(context: .init(permission: configuration.defaultPermission, purpose: .previewInspection))
+        provider.provider = .local; provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
+        provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel = "milk-fixture"
+        let backend = PiAdapter(runtime: runtime, configuration: { configuration }, providerConfiguration: { provider }).makeBackend(context: .init(permission: configuration.defaultPermission, purpose: .previewInspection))
         let config = try await PreviewPiAssistant.discover(root: root, backend: backend)
         try await backend.shutdownAndWait()
         XCTAssertEqual(config.command, "npm run preview:local"); XCTAssertEqual(config.directory.path, root.appendingPathComponent("web").path)
@@ -38,7 +38,7 @@ final class PiIntegrationTests: XCTestCase {
             try await Task.sleep(nanoseconds: 30_000_000)
         }
     }
-    @MainActor func testVanillaPiStreamingApprovalsQueueSteerAbortHistoryAndTelemetry() async throws {
+    @MainActor func testVanillaPiStreamingApprovalsQueueSteerAbortHistoryAndLocalModels() async throws {
         let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Pi-Integration-" + UUID().uuidString)
         let root = temporary.appendingPathComponent("Workspace"), agentDir = temporary.appendingPathComponent("agent")
@@ -47,16 +47,16 @@ final class PiIntegrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let server = Process(), portPipe = Pipe()
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]
+        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]
         server.standardOutput = portPipe; server.standardError = FileHandle.nullDevice
         try server.run(); defer { if server.isRunning { server.terminate() } }
         let portText = String(decoding: portPipe.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let port = try XCTUnwrap(Int(portText))
-        let runtime = PiRuntimeService(resources: ProcessInfo.processInfo.environment["MILK_TEST_RUNTIME_RESOURCES"].map { URL(fileURLWithPath: $0) } ?? project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": agentDir.path, "MILK_OMLX_TOKEN": "fixture", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
-        var configuration = AgentConfiguration()
-        configuration.omlx.enabled = true; configuration.omlx.endpoint = URL(string: "http://127.0.0.1:\(port)")!
-        configuration.omlx.modelIDs = ["milk-fixture", "reasoning-fixture"]; configuration.omlx.reasoningModels = ["reasoning-fixture"]; configuration.omlx.defaultModel = "milk-fixture"
-        let backend = PiBackend(runtime: runtime); defer { backend.shutdown() }
+        let runtime = PiRuntimeService(resources: ProcessInfo.processInfo.environment["MILK_TEST_RUNTIME_RESOURCES"].map { URL(fileURLWithPath: $0) } ?? project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": agentDir.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        var configuration = AgentConfiguration(); var provider = PiProviderConfiguration()
+        provider.provider = .local; provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
+        provider.local.models = ["milk-fixture", "reasoning-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel = "milk-fixture"
+        let backend = PiBackend(runtime: runtime, providerConfiguration: provider); defer { backend.shutdown() }
         var events: [AgentEvent] = [], settled = 0, streamed = "", approvals: [AgentApproval] = [], changes: [AgentFileChange] = [], sessionFile: String?, directory: URL?, model: AgentModel?, levels: [String] = []
         var liveMessages: [AgentMessage] = [], liveActivities: [AgentActivity] = []
         var decision = "Deny", failures: [String] = []
@@ -86,18 +86,11 @@ final class PiIntegrationTests: XCTestCase {
             }
         }
         try await backend.start(workspace: root, session: .init(id: 0, title: "Integration"), configuration: configuration)
-        XCTAssertEqual(model?.provider, "omlx"); XCTAssertEqual(model?.modelID, "milk-fixture"); XCTAssertEqual(levels, ["off"])
-        let status = try await OMLXService().inspect(configuration.omlx, token: "fixture")
-        var unauthorized = configuration.omlx; unauthorized.endpoint.appendPathComponent("unauthorized")
-        let rejected = try await OMLXService().inspect(unauthorized, token: nil)
-        XCTAssertTrue(rejected.reachable); XCTAssertEqual(rejected.authenticated, false)
-        XCTAssertEqual(status.serverState, "healthy")
-        XCTAssertTrue(status.reachable); XCTAssertEqual(status.models.first?.loaded, true); XCTAssertEqual(status.memoryBytes, 1048576)
-
-        try await backend.setModel(.init(provider: "omlx", modelID: "reasoning-fixture", name: "Reasoning", supportsImages: false))
+        XCTAssertEqual(model?.provider, PiProviderSupport.providerID); XCTAssertEqual(model?.modelID, "milk-fixture"); XCTAssertEqual(levels, ["off"])
+        try await backend.setModel(.init(provider: PiProviderSupport.providerID, modelID: "reasoning-fixture", name: "Reasoning", supportsImages: false))
         XCTAssertGreaterThan(levels.count, 1)
         try await backend.setEffort(try XCTUnwrap(levels.last))
-        try await backend.setModel(.init(provider: "omlx", modelID: "milk-fixture", name: "Fixture", supportsImages: false))
+        try await backend.setModel(.init(provider: PiProviderSupport.providerID, modelID: "milk-fixture", name: "Fixture", supportsImages: false))
         XCTAssertEqual(levels, ["off"])
         let external = temporary.appendingPathComponent("attachment.txt")
         try Data("attached external text marker".utf8).write(to: external)
@@ -174,7 +167,7 @@ final class PiIntegrationTests: XCTestCase {
         try await backend.shutdownAndWait()
         XCTAssertTrue(FileManager.default.fileExists(atPath: file), "Close preserves real Pi history")
 
-        let restored = PiBackend(runtime: runtime); defer { restored.shutdown() }
+        let restored = PiBackend(runtime: runtime, providerConfiguration: provider); defer { restored.shutdown() }
         var restoredMessages: [AgentMessage] = [], restoredActivities: [AgentActivity] = []
         restored.onEvent = {
             if case .message(let message) = $0 { restoredMessages.append(message) }

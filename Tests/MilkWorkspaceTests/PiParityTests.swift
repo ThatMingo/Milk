@@ -13,13 +13,13 @@ final class PiParityTests: XCTestCase {
         }
     }
 
-    @MainActor private func fixture() throws -> (URL, PiRuntimeService, AgentConfiguration) {
+    @MainActor private func fixture() throws -> (URL, PiRuntimeService, AgentConfiguration, PiProviderConfiguration) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Pi-Parity-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("web"), withIntermediateDirectories: true)
         try Data(#"{"scripts":{"preview:local":"vite"}}"#.utf8).write(to: root.appendingPathComponent("web/package.json"))
         let server = Process(), output = Pipe()
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]
+        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]
         server.standardOutput = output; server.standardError = FileHandle.nullDevice
         try server.run()
         addTeardownBlock {
@@ -27,21 +27,21 @@ final class PiParityTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         let port = try XCTUnwrap(Int(String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
-        let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": root.appendingPathComponent("agent").path, "MILK_OMLX_TOKEN": "fixture", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
-        var configuration = AgentConfiguration()
-        configuration.omlx.enabled = true; configuration.omlx.endpoint = URL(string: "http://127.0.0.1:\(port)")!
-        configuration.omlx.modelIDs = ["milk-fixture"]; configuration.omlx.defaultModel = "milk-fixture"
-        return (root, runtime, configuration)
+        let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": root.appendingPathComponent("agent").path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        let configuration = AgentConfiguration(); var provider = PiProviderConfiguration()
+        provider.provider = .local; provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
+        provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel = "milk-fixture"
+        return (root, runtime, configuration, provider)
     }
 
     @MainActor func testConcurrentSessionsAndAuxiliaryPreviewRemainIndependent() async throws {
-        let (root, runtime, configuration) = try fixture()
+        let (root, runtime, configuration, provider) = try fixture()
         let suite = "Milk.PiParity." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         try configuration.save(defaults)
         let workspace = WorkspaceStore(persistence: .init(defaults: defaults, enabled: false))
         try workspace.openWorkspace(root)
-        let agent = AgentService(workspace: workspace, defaults: defaults, enabled: false, adapter: PiAdapter(runtime: runtime, configuration: { .load(defaults) }))
+        let agent = AgentService(workspace: workspace, defaults: defaults, enabled: false, adapter: PiAdapter(runtime: runtime, configuration: { .load(defaults) }, providerConfiguration: { provider }))
         addTeardownBlock { let exited = await agent.shutdownAndWait(); XCTAssertTrue(exited) }
         agent.restore(nil)
         let first = agent.selectedSession
@@ -57,7 +57,7 @@ final class PiParityTests: XCTestCase {
         let secondPath = try XCTUnwrap(agent.currentSession?.sessionFile)
         XCTAssertNotEqual(firstPath, secondPath)
 
-        let inspection = PiAdapter(runtime: runtime, configuration: { configuration }).makeBackend(context: .init(permission: configuration.defaultPermission, purpose: .previewInspection))
+        let inspection = PiAdapter(runtime: runtime, configuration: { configuration }, providerConfiguration: { provider }).makeBackend(context: .init(permission: configuration.defaultPermission, purpose: .previewInspection))
         addTeardownBlock { try await inspection.shutdownAndWait() }
         let preview = try await PreviewPiAssistant.discover(root: root, backend: inspection)
         try await inspection.shutdownAndWait()
@@ -82,7 +82,7 @@ final class PiParityTests: XCTestCase {
     }
 
     @MainActor func testRealPiSelectConfirmInputAndEditorRoundTrip() async throws {
-        let (root, runtime, configuration) = try fixture()
+        let (root, runtime, configuration, provider) = try fixture()
         let extensions = root.appendingPathComponent("agent/extensions")
         try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
         let source = """
@@ -98,7 +98,7 @@ final class PiParityTests: XCTestCase {
         }
         """
         try Data(source.utf8).write(to: extensions.appendingPathComponent("dialogs.ts"))
-        let backend = PiBackend(runtime: runtime)
+        let backend = PiBackend(runtime: runtime, providerConfiguration: provider)
         addTeardownBlock { try await backend.shutdownAndWait() }
         var methods: [String] = [], dismissed: [String] = [], reply: JSONValue?, failures: [String] = []
         backend.onEvent = { event in
@@ -149,8 +149,8 @@ final class PiParityTests: XCTestCase {
         try FileManager.default.copyItem(at: project.appendingPathComponent("Tests/Fixtures/pi_parity_peer.py"), to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["MILK_PARITY_READY": ready ? "1" : "0"])
-        var configuration = AgentConfiguration(); configuration.runtime = .external(executable)
-        return (root, PiBackend(runtime: runtime), configuration)
+        var configuration = AgentConfiguration(); let provider = PiProviderConfiguration(); configuration.runtime = .external(executable)
+        return (root, PiBackend(runtime: runtime, providerConfiguration: provider), configuration)
     }
 
     @MainActor func testMissingIntegrationHandshakeFailsBeforeReadyOrHistory() async throws {

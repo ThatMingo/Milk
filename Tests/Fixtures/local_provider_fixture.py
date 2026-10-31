@@ -5,17 +5,40 @@ import json,time,sys,os
 class Handler(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'
     def log_message(self,*args): pass
+    def authorized(self):
+        mode=os.environ.get('MILK_FIXTURE_AUTH')
+        control=os.environ.get('MILK_FIXTURE_AUTH_FILE')
+        if control:
+            with open(control) as stream: mode=stream.read().strip()
+        auth=self.headers.get('Authorization','')
+        if mode=='none': return 'Authorization' not in self.headers
+        if mode=='key': return auth=='Bearer fixture-local-secret'
+        if mode=='external-key': return auth=='Bearer external-fixture-secret'
+        return True
+    def record(self, model=None):
+        log=os.environ.get('MILK_FIXTURE_REQUEST_LOG')
+        if log:
+            with open(log,'a') as stream:
+                stream.write(json.dumps({'method':self.command,'path':self.path,'model':model,'has_auth':'Authorization' in self.headers,'placeholder':self.headers.get('Authorization')=='Bearer local-no-auth'})+'\n')
     def do_GET(self):
+        self.record()
+        if not self.authorized(): self.send_error(401); return
         if self.path.startswith('/unauthorized/'):
             self.send_error(401); return
         if self.path=='/health': value={'status':'healthy'}
-        elif self.path=='/v1/models': value={'data':[{'id':'milk-fixture','object':'model','owned_by':'omlx'}]}
+        elif self.path=='/v1/models': value={'data':[
+            {'id':'milk-fixture','object':'model','context_window':64000,'max_tokens':4000,'reasoning':False,'input':['text']},
+            {'id':'org/Qwen:Q4_K_M','object':'model','context_window':262144,'effective_context_window':64000,'max_tokens':4000,'reasoning':False,'input':['text']},
+            {'id':'reasoning-fixture','object':'model','context_window':90000,'max_tokens':4000,'reasoning':True,'input':['text']}]}
+        # These optional brand-specific routes serve the separately installed status example only.
         elif self.path=='/v1/models/status': value={'models':[{'id':'milk-fixture','state':'loaded','loaded':True}]}
         elif self.path=='/api/status': value={'status':'ok','model_memory_used':1048576}
         else: self.send_error(404); return
         data=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        self.record(body.get('model'))
+        if not self.authorized(): self.send_error(401); return
         messages=body['messages']; last=messages[-1]; content=last.get('content') or ''
         if isinstance(content,list): content=' '.join(x.get('text','') for x in content)
         is_tool=last.get('role')=='tool'

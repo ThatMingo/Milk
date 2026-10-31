@@ -90,12 +90,12 @@ final class NativeExtensionIntegrationTests: XCTestCase {
         await manager.setWorkspace(root)
         let review=try manager.inspect(package); try await manager.install(review,trusting:review.fingerprint,granting:review.capabilities)
         let server=Process(), portPipe=Pipe(); server.executableURL=URL(fileURLWithPath:"/usr/bin/python3")
-        server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]; server.standardOutput=portPipe; server.standardError=FileHandle.nullDevice
+        server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]; server.standardOutput=portPipe; server.standardError=FileHandle.nullDevice
         try server.run(); defer { if server.isRunning { server.terminate() } }
         let port=try XCTUnwrap(Int(String(decoding:portPipe.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)))
-        let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agentDir.path,"MILK_OMLX_TOKEN":"fixture","PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
-        let backend=PiBackend(runtime:runtime,nativeExtensions:manager); defer { backend.shutdown() }
-        var configuration=AgentConfiguration(); configuration.omlx.enabled=true; configuration.omlx.endpoint=URL(string:"http://127.0.0.1:\(port)")!; configuration.omlx.modelIDs=["milk-fixture"]; configuration.omlx.defaultModel="milk-fixture"
+        let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agentDir.path,"PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
+        var configuration = AgentConfiguration(); var provider = PiProviderConfiguration(); provider.provider = .local; provider.local.endpoint=URL(string:"http://127.0.0.1:\(port)")!; provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel="milk-fixture"
+        let backend=PiBackend(runtime:runtime,nativeExtensions:manager,providerConfiguration:provider); defer { backend.shutdown() }
         var settled=0, failures:[String]=[], piApprovals=0
         backend.onEvent={ event in
             switch event {

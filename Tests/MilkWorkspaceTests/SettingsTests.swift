@@ -86,7 +86,7 @@ final class SettingsTests:XCTestCase {
     }
     @MainActor func testAgentMigrationDefaultsPersistenceAndSessionIsolation() throws {
         let (defaults,name)=preferences(); defer { defaults.removePersistentDomain(forName:name) }
-        var config=AgentConfiguration(); config.runtime = .external(URL(fileURLWithPath:"/tmp/pi-override")); config.omlx.endpoint=URL(string:"http://127.0.0.1:9000")!
+        var config=AgentConfiguration(); config.runtime = .external(URL(fileURLWithPath:"/tmp/pi-override"))
         try config.save(defaults)
         XCTAssertEqual(AgentConfiguration.load(defaults),config)
         let workspace=WorkspaceStore(persistence:WorkspacePersistence(defaults:defaults,enabled:false))
@@ -98,45 +98,6 @@ final class SettingsTests:XCTestCase {
         defaults.set(Data(#"{"runtime":{"bundled":{}},"omlx":{},"oldField":true}"#.utf8),forKey:AgentConfiguration.key)
         let migrated=AgentConfiguration.load(defaults)
         XCTAssertTrue(migrated.runtime.isBundled); XCTAssertEqual(migrated.defaultPermission,.approval)
-        config.omlx.endpoint=URL(string:"file:///tmp/secret")!; try config.save(defaults)
-        XCTAssertEqual(AgentConfiguration.load(defaults).omlx,OMLXConfiguration())
-    }
-    func testKeychainRoundTripNeverSerializesToken() throws {
-        let endpoint=URL(string:"http://127.0.0.1:8000/keychain-test-"+UUID().uuidString)!
-        defer { try? OMLXCredentials.save("",endpoint:endpoint) }
-        try OMLXCredentials.save("phase-six-test-secret",endpoint:endpoint)
-        XCTAssertEqual(try OMLXCredentials.token(endpoint:endpoint),"phase-six-test-secret")
-        var config=AgentConfiguration(); config.omlx.endpoint=endpoint
-        let serialized=String(decoding:try JSONEncoder().encode(config),as:UTF8.self)
-        XCTAssertFalse(serialized.contains("phase-six-test-secret")); XCTAssertFalse(serialized.contains("apiKey"))
-        try OMLXCredentials.save("",endpoint:endpoint); XCTAssertNil(try OMLXCredentials.token(endpoint:endpoint))
-    }
-    @MainActor func testRuntimeSettingsSaveClearsDraftAndKeepsKeychainTokenOnNextSave() async throws {
-        let project=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let resources=ProcessInfo.processInfo.environment["MILK_TEST_RUNTIME_RESOURCES"].map { URL(fileURLWithPath:$0) } ?? project.appendingPathComponent("Runtime")
-        let (defaults,name)=preferences(); defer { defaults.removePersistentDomain(forName:name) }
-        let endpoint=URL(string:"http://127.0.0.1:8000/keychain-test-"+UUID().uuidString)!
-        defer { try? OMLXCredentials.save("",endpoint:endpoint) }
-        var config=AgentConfiguration(); config.omlx.endpoint=endpoint; try config.save(defaults)
-        let workspace=WorkspaceStore(persistence:WorkspacePersistence(defaults:defaults,enabled:false))
-        let agent=AgentService(workspace:workspace,defaults:defaults,enabled:false)
-        let model=RuntimeSettingsModel(agent:agent,runtime:PiRuntimeService(resources:resources))
-        model.editToken("phase-six-draft-secret")
-        func save() async throws {
-            model.save()
-            let deadline=Date().addingTimeInterval(12)
-            while model.busy {
-                guard Date()<deadline else { throw AgentError.message("Settings save timed out") }
-                try await Task.sleep(nanoseconds:20_000_000)
-            }
-            XCTAssertTrue(model.result.hasPrefix("Saved."),model.result)
-        }
-        try await save()
-        XCTAssertTrue(model.token.isEmpty); XCTAssertFalse(model.replaceToken); XCTAssertTrue(model.tokenStored)
-        XCTAssertEqual(try OMLXCredentials.token(endpoint:endpoint),"phase-six-draft-secret")
-        try await save()
-        XCTAssertEqual(try OMLXCredentials.token(endpoint:endpoint),"phase-six-draft-secret")
-        XCTAssertFalse(String(decoding:defaults.data(forKey:AgentConfiguration.key)!,as:UTF8.self).contains("phase-six-draft-secret"))
     }
     @MainActor func testEditorAndPreviewDefaultsPersistence() async throws {
         let (defaults,name)=preferences(); defer { defaults.removePersistentDomain(forName:name) }
@@ -162,26 +123,6 @@ final class SettingsTests:XCTestCase {
         XCTAssertFalse(AgentConfiguration.load(defaults).runtime.isBundled)
         config.runtime = .bundled; try config.save(defaults)
         XCTAssertTrue(AgentConfiguration.load(defaults).runtime.isBundled)
-    }
-    @MainActor func testProviderCatalogAndExternalAdapter() async throws {
-        XCTAssertEqual(PiProviderID.allCases,[.omlx])
-        let (defaults,name)=preferences();defer {defaults.removePersistentDomain(forName:name)}
-        let workspace=WorkspaceStore(persistence:WorkspacePersistence(defaults:defaults,enabled:false))
-        let agent=AgentService(workspace:workspace,defaults:defaults,enabled:false)
-        let model=RuntimeSettingsModel(agent:agent)
-        model.selectProvider(.omlx)
-        XCTAssertTrue(model.configuration.omlx.enabled)
-        XCTAssertTrue(model.configuration.runtime.isBundled)
-        let project=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let server=Process(),output=Pipe()
-        server.executableURL=URL(fileURLWithPath:"/usr/bin/python3");server.arguments=["-u",project.appendingPathComponent("Tests/Fixtures/omlx_fixture.py").path]
-        server.standardOutput=output;server.standardError=FileHandle.nullDevice
-        try server.run();defer {if server.isRunning {server.terminate()}}
-        let port=try XCTUnwrap(Int(String(decoding:output.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)))
-        var config=AgentConfiguration();config.omlx.endpoint=URL(string:"http://127.0.0.1:\(port)")!
-        let status=try await ProviderSettingsCatalog.adapter(for:.omlx).inspect(agent:agent,configuration:config,token:"fixture")
-        XCTAssertTrue(status.reachable);XCTAssertTrue(status.models.contains(where:{$0.id == "milk-fixture"}))
-        XCTAssertNotNil(status.checkedAt)
     }
     func testVersionOrderingAndManifestValidation() throws {
         XCTAssertLessThan(try MilkVersion("0.6.9"),try MilkVersion("0.6.10"))

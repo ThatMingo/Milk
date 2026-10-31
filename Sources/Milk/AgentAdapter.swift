@@ -36,6 +36,7 @@ protocol AgentFileSessionHistory: Sendable {
 
 @MainActor protocol AgentAdapter {
     var descriptor: AgentDescriptor { get }
+    var settingsProvider: (any AgentSettingsProviding)? { get }
     /// Metadata-only selection state for presentation; must not launch or probe code.
     var hasSelectedInstallation: Bool { get }
     var fileSessionHistory: (any AgentFileSessionHistory)? { get }
@@ -45,6 +46,7 @@ protocol AgentFileSessionHistory: Sendable {
     func discoverPreview(root: URL, model: AgentModel?, lifecycle: AgentLifecycleCoordinator) async throws -> PreviewConfiguration
 }
 extension AgentAdapter {
+    var settingsProvider: (any AgentSettingsProviding)? { nil }
     var hasSelectedInstallation: Bool { true }
     func sessionDeletionUnavailableReason(_ saved: SavedAgentSession) -> String? { nil }
     func sessionAvailability(_ session: AgentSession, workspace: SessionWorkspace) -> SessionAvailability { .init() }
@@ -72,6 +74,7 @@ extension AgentAdapter {
     let base: any AgentAdapter
     let factory: @MainActor () -> any AgentBackend
     var descriptor: AgentDescriptor { base.descriptor }
+    var settingsProvider: (any AgentSettingsProviding)? { base.settingsProvider }
     var hasSelectedInstallation: Bool { base.hasSelectedInstallation }
     var fileSessionHistory: (any AgentFileSessionHistory)? { base.fileSessionHistory }
     func sessionDeletionUnavailableReason(_ saved: SavedAgentSession) -> String? { base.sessionDeletionUnavailableReason(saved) }

@@ -3,7 +3,8 @@
 Milk ships without a coding agent. Pi is the only registered production agent;
 its adapter is compiled into Milk, while the Pi executable is installed separately.
 This document describes the current system. For verification evidence and its
-limits, see [Agent final acceptance](docs/AGENT_PHASE_FINAL_ACCEPTANCE.md).
+limits, see [provider/profile final acceptance](docs/PROVIDER_FINAL_ACCEPTANCE.md)
+and the earlier [agent baseline](docs/AGENT_PHASE_FINAL_ACCEPTANCE.md).
 
 ## Agent boundary
 
@@ -18,8 +19,9 @@ Milk UI / AgentService
 
 `AgentAdapter` is Milk's internal capability/session boundary. `PiAdapter`
 implements it without changing upstream Pi. `Runtime/MilkPiIntegration.ts` is a
-Milk-authored extension using Pi's public hooks for approvals, provider registration
-and the native extension bridge. It remains an app resource, not a coding-agent
+Milk-authored extension using Pi's public hooks for approvals, the integration
+handshake and the native extension bridge. Provider registration is not part of
+that extension. It remains an app resource, not a coding-agent
 runtime. There is no downloadable/public agent-adapter SDK or second production
 agent implementation.
 
@@ -110,14 +112,18 @@ Executable ownership is independent of data ownership:
 
 | Data | Owner / storage |
 | --- | --- |
-| Pi auth, configuration, native sessions, extensions, skills and prompts | Ordinary Pi storage, normally `~/.pi/agent`, or the explicit `PI_CODING_AGENT_DIR` |
+| Managed Pi auth, configuration, native sessions, extensions, skills and prompts | Milk-owned `~/Library/Application Support/Milk/Agents/pi/profile/` |
+| Existing Pi state | Existing profile, normally `~/.pi/agent`, or its ambient `PI_CODING_AGENT_DIR` |
 | Milk workspace/editor recovery, drafts and retained conversation metadata/cache | `~/Library/Application Support/Milk/Workspaces/` |
 | Milk preferences and installation selection metadata | UserDefaults and the separate managed-installation store |
-| Milk oMLX provider token | Keychain, keyed by endpoint; supplied to owned requests/child environment in memory |
+| Adapter-requested provider credentials | Keychain, scoped by agent, provider and endpoint; passed to Pi through its child environment in memory |
+| Pi provider settings presented by Milk | Pi-specific UserDefaults key `Milk.agent.pi.providers.v1`; separate from installation state |
 
 These locations can contain private data and are not source repository contents.
 Installing/removing executable revisions does not copy, convert or erase Pi's
-ordinary profile. Provider settings and credentials survive installation changes.
+existing profile. Managed installs do not copy the existing profile. Runtime removal
+preserves the managed profile for reinstall. Provider drafts are scoped separately
+for managed and existing setups; see [profile ownership](docs/PI_PROFILE_OWNERSHIP.md).
 
 Sessions retain their creating agent and workspace identity plus an adapter-owned
 native reference. Milk caches presentation for offline browsing; an unavailable
@@ -144,13 +150,50 @@ OS sandbox, and trusted native/Pi extension code runs with user permissions.
 Models, reasoning levels and image support come from the live provider catalog;
 Milk does not advertise a fixed sample capability set.
 
-Pi keeps its existing provider configuration. Milk's optional oMLX adapter adds an
-external HTTP(S) endpoint and model settings without replacing other Pi providers.
-`OMLXService` performs read-only status/model requests; polling begins with agent
-use or an explicit provider action, not workspace restoration. Milk does not
-install, launch, stop or update oMLX or its model weights. Tokens stay in Keychain
-and are not serialized into workspace recovery. Milk has no OAuth/login setup
-flow; authentication remains Pi's responsibility where supported.
+Milk manages coding agents. Coding agents own provider/model configuration:
+**Milk → Coding Agent → Provider → Model** (currently Pi only). Global Settings
+has no provider or model configuration. `AgentAdapter.settingsProvider` is an
+optional `AgentSettingsProviding` facet: core lists opaque native settings sections
+and hosts adapter-supplied SwiftUI content. It assumes no endpoint, key, model or
+reasoning schema. Installation management remains separate.
+
+`PiAdapter` exposes its own provider selector and conditional Local fields. Local
+means an OpenAI-compatible endpoint, independent of the serving application's
+brand. Test Connection performs one read-only models request. There is no global
+provider polling, status telemetry or Milk inference client. Chat models and
+thinking levels still come exclusively from the active backend's Pi RPC replies.
+
+`PiProviderSupport` merges the adapter-owned `milk-local` entry into Pi's documented
+`models.json`, preserving unrelated providers and keeping original bytes in a
+backup before changed writes. Secrets are environment references in that file;
+the actual API key remains in agent/provider/endpoint-scoped Keychain storage.
+For None authentication, Pi's documented `before_provider_headers` hook sets
+Authorization to null for the adapter-owned Local provider. The static availability
+key needed by Pi stays internal: no Authorization header reaches the Local server.
+API-key mode retains the profile-scoped Keychain credential and normal bearer
+transport. Milk does not perform inference or register a replacement provider.
+
+Model discovery preserves exact IDs and optional per-model effective metadata.
+Explicit per-model numeric overrides win over reported limits. Auto uses the
+authoritative reported value if present, otherwise omits that field. Unknown limits stay unknown in Milk and are omitted from models.json. Pi accepts
+these models and supplies its own effective defaults; Milk does not supply
+universal numbers or require manual limits. Optional Advanced overrides remain
+per-model. Unknown reasoning/image fields are omitted; Pi then reports its
+conservative effective behavior through RPC. Milk does not change compaction or
+infer token usage. Model selection uses exact `set_model` RPC, avoiding CLI fuzzy
+matching or thinking suffix parsing.
+
+Provider save uses the existing lifecycle guard: running/start/pending work,
+approvals and auxiliary inspection/maintenance block reconfiguration. Successful
+save persists the Pi-specific draft, applies Pi configuration, and reconnects idle
+runtimes. It does not create or reassign sessions, move Pi data, or erase drafts
+or history. Session-specific composer choices still restore when Pi reports them
+as available. Legacy shared preferences and credentials remain for recovery;
+active profile-scoped settings do not automatically import ambiguous shared
+development state. The retained legacy decoder discards global token-limit guesses.
+
+See [agent provider settings](docs/AGENT_PROVIDER_SETTINGS.md) for the settings
+contract, source fields, migration details, and focused verification evidence.
 
 Native Milk extensions use the shared MilkExtensionKit library and the protected
 Milk/Pi bridge; Pi extensions remain separately loaded Pi resources. Native
@@ -190,3 +233,18 @@ and downloaded-runtime distribution review remains unresolved. Hash verification
 retained notices and keeping binaries outside Milk.app do not establish release
 clearance. See [third-party notices](ThirdPartyNotices/README.md) and
 [final acceptance](docs/AGENT_PHASE_FINAL_ACCEPTANCE.md) for the recorded limits.
+
+## Pi profile selection
+
+Managed runtime ownership requires a Milk-managed `AgentDataProfile`. The manager
+validates `store.root/profile` (including rejecting links that escape ownership),
+and the launch resolver sets `PI_CODING_AGENT_DIR` in the child environment before
+any Pi probe or startup. Pi uses this supported agent directory for its complete
+persistent profile, rather than just models.json. Existing installations retain
+their ambient agent directory and setup. Compatibility probes remain ephemeral.
+Provider settings, extension management and package commands use the same selected
+profile. Managed launches reject native resume files outside it without modifying
+those files. Runtime deletion removes versions only, preserving profile data.
+This selects Pi's persistent profile; it is not an OS sandbox, and explicit
+project configuration/resources and trusted extension code retain Pi's normal
+behavior. No upstream Pi code is patched.

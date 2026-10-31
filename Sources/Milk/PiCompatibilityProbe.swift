@@ -22,7 +22,7 @@ import Foundation
             var environment = launch.environment
             environment["MILK_PERMISSION_MODE"] = "approval"
             environment["MILK_PREVIEW_DISCOVERY"] = "1"
-            for key in ["MILK_NATIVE_CATALOG", "MILK_OMLX_CONFIG", "MILK_OMLX_TOKEN"] { environment.removeValue(forKey: key) }
+            for key in ["MILK_NATIVE_CATALOG", "MILK_PI_LOCAL_KEY"] { environment.removeValue(forKey: key) }
             client.onRecord = { [weak self] record in
                 if record["type"].string == "extension_ui_request", record["method"].string == "setStatus",
                    record["statusKey"].string == "milk-integration-ready" { self?.integrationReady = record["statusText"].string == "1" }
