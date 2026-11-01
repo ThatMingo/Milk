@@ -1,4 +1,5 @@
 import Foundation
+import MilkExtensionHost
 import Combine
 import CryptoKit
 
@@ -63,7 +64,6 @@ enum UpdateState: Equatable {
     func downloadVerifyAndInstall(_ manifest:UpdateManifest, expectedIdentity:String) async throws
 }
 @MainActor final class UpdateService: ObservableObject {
-    static let developmentVersion="0.7.0"
     let currentVersion:String
     let identity:String
     @Published private(set) var state:UpdateState = .unconfigured
@@ -77,7 +77,7 @@ enum UpdateState: Equatable {
     var canInstall:Bool { installer != nil && !localTestSource }
     init(defaults:UserDefaults = .standard, session:URLSession = .shared, installer:UpdateInstaller? = nil, currentVersion:String? = nil, identity:String? = nil) {
         self.defaults=defaults; self.session=session; self.installer=installer
-        self.currentVersion=currentVersion ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? Self.developmentVersion
+        self.currentVersion=currentVersion ?? MilkApplicationVersion.current.version ?? "unversioned"
         self.identity=identity ?? Bundle.main.bundleIdentifier ?? "dev.milk.phase1"
         if let path=defaults.string(forKey:"Milk.update.testManifest"), path.hasPrefix("/") { source=URL(fileURLWithPath:path); localTestSource=true }
         else if let value=Bundle.main.object(forInfoDictionaryKey:"MilkUpdateFeedURL") as? String, let url=URL(string:value), url.scheme == "https" { source=url }

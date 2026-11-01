@@ -70,7 +70,7 @@ public struct NativeExtensionRecord: Codable, Identifiable, Equatable {
     private var quitting=false
     private var integrityWatcher: ExtensionIntegrityWatcher?
     private var integrityTask: Task<Void,Never>?
-    public init(root: URL? = nil, loader: (any NativeExtensionLoading)? = nil, milkVersion: String = "0.7.0") {
+    public init(root: URL? = nil, loader: (any NativeExtensionLoading)? = nil, milkVersion: String = MilkApplicationVersion.current.version ?? "") {
         self.root=root ?? FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Milk",isDirectory:true)
         catalogURL=self.root.appendingPathComponent("ExtensionBridge/catalog.json")
         self.loader=loader ?? NativeBundleLoader(); inspector=NativePackageInspector(milkVersion:milkVersion); registry=ExtensionContributionRegistry()

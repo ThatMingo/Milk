@@ -6,6 +6,7 @@ if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]
     export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
 [[ $(uname -m) == arm64 ]] || { print -u2 "Milk targets Apple Silicon."; exit 1; }
+python3 scripts/app-version.py
 swift build --cache-path "$PWD/.build/cache" "$@"
 mkdir -p output
 staging=$(mktemp -d "$PWD/output/.Milk-build-XXXXXX")
@@ -41,8 +42,6 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Milk</string>
 <key>CFBundleDisplayName</key><string>Milk</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.7.0</string>
-<key>CFBundleVersion</key><string>7</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>UTExportedTypeDeclarations</key><array><dict><key>UTTypeIdentifier</key><string>dev.milk.extension</string><key>UTTypeConformsTo</key><array><string>com.apple.bundle</string></array><key>UTTypeDescription</key><string>Milk Extension</string><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>milkext</string></array></dict></dict></array>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Milk Extension</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSItemContentTypes</key><array><string>dev.milk.extension</string></array><key>LSTypeIsPackage</key><true/></dict></array>
@@ -50,6 +49,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+python3 scripts/app-version.py --plist "$app/Contents/Info.plist"
 codesign --force --options runtime --entitlements scripts/milk-app.entitlements --sign "$identity" "$app"
 codesign --verify --deep --strict "$app"
 

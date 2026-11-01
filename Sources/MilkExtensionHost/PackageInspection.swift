@@ -44,7 +44,7 @@ public struct NativePackageInspection {
 /// Inspection never calls Bundle.load/principalClass or executes package code.
 public struct NativePackageInspector {
     public let milkVersion: String
-    public init(milkVersion: String = "0.7.0") { self.milkVersion=milkVersion }
+    public init(milkVersion: String = MilkApplicationVersion.current.version ?? "") { self.milkVersion=milkVersion }
     public func inspect(_ url: URL) throws -> NativePackageInspection {
         let fm=FileManager.default
         guard url.isFileURL, url.pathExtension == "milkext", (try url.resourceValues(forKeys:[.isDirectoryKey])).isDirectory == true else { throw NativeExtensionError.invalid("Choose a .milkext native bundle directory.") }

@@ -1,4 +1,5 @@
 import Foundation
+import MilkExtensionHost
 import Darwin
 import MilkPTY
 
@@ -40,7 +41,7 @@ final class TerminalProcess: @unchecked Sendable {
         value["USER"] = NSUserName(); value["LOGNAME"] = NSUserName()
         value["PWD"] = directory.path; value.removeValue(forKey: "OLDPWD")
         value["TERM"] = "xterm-256color"; value["COLORTERM"] = "truecolor"
-        value["TERM_PROGRAM"] = "Milk"; value["TERM_PROGRAM_VERSION"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.6.0"
+        value["TERM_PROGRAM"] = "Milk"; value["TERM_PROGRAM_VERSION"] = MilkApplicationVersion.current.version ?? "unversioned"
         if value["PATH"]?.isEmpty != false { value["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin" }
         if value["LANG"] == nil && value["LC_ALL"] == nil { value["LANG"] = "en_US.UTF-8" }
         // No injected project commands, approval variables or input/output logging.

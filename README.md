@@ -4,7 +4,7 @@ Milk is a native macOS GUI for coding agents, built with Swift, SwiftUI and AppK
 It brings files, an editor, agent chat, sessions, Git/Diff, Terminal and web Preview
 into one rearrangeable workspace.
 
-The current development version is **0.7.0**, targeting **Apple Silicon and macOS
+The canonical application version is in [VERSION](VERSION), targeting **Apple Silicon and macOS
 26 or newer**. Pi is the first and currently only production agent integration.
 
 ## What works today
