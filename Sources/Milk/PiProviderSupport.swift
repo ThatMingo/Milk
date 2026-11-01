@@ -39,7 +39,8 @@ enum PiProviderSupport {
             var value: [String: Any] = ["name": displayName, "api": "openai-completions", "baseUrl": local.apiBase.absoluteString, "models": models,
                                         "authHeader": local.authentication == .apiKey]
             if local.authentication == .apiKey {
-                guard let key = try credential ?? AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: local.endpoint, profile: profile), !key.isEmpty else {
+                guard let raw = try credential ?? AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: local.endpoint, profile: profile),
+                      case let key = try AgentProviderCredentials.normalized(raw), !key.isEmpty else {
                     throw AgentError.message("The Local API key is missing from Keychain.")
                 }
                 environment[credentialVariable] = key

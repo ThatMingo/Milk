@@ -6,13 +6,18 @@ import { Type } from "@earendil-works/pi-ai";
 
 export default function (pi: any) {
   // Pi's documented request header hook supports null to omit SDK defaults.
-  // This only affects the adapter-owned Local provider in explicit None mode.
+  // Apply only the adapter-owned Local provider's active authentication mode.
   pi.on("before_provider_headers", (event: any, ctx: any) => {
-    if (process.env.MILK_PI_LOCAL_NO_AUTH !== "1" || ctx.model?.provider !== "milk-local") return;
+    if (ctx.model?.provider !== "milk-local") return;
+    const key = process.env.MILK_PI_LOCAL_KEY;
+    const noAuth = process.env.MILK_PI_LOCAL_NO_AUTH === "1";
+    if (!noAuth && !key) return;
     for (const name of Object.keys(event.headers)) {
       if (name.toLowerCase() === "authorization") event.headers[name] = null;
     }
-    event.headers.Authorization = null;
+    // auth.json has precedence over models.json in Pi. Milk's active profile
+    // credential must win even if this profile retains an older milk-local key.
+    event.headers.Authorization = noAuth ? null : `Bearer ${key}`;
   });
   // Milk owns this transport, never extension-supplied JS. Native UI remains SwiftUI/AppKit.
   const catalogPath = process.env.MILK_NATIVE_CATALOG;

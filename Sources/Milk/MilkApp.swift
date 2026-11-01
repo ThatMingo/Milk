@@ -8,6 +8,9 @@ import MilkExtensionHost
 @main
 struct MilkApp {
     @MainActor static func main() {
+        if CommandLine.arguments.contains("--verify-provider-keychain") {
+            exit(ProviderCredentialVerification.run())
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--milk-static-server"), CommandLine.arguments.count > index + 1 {
             StaticPreviewServer.run(root: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
         }

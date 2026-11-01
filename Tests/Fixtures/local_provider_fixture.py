@@ -21,6 +21,13 @@ class Handler(BaseHTTPRequestHandler):
             with open(log,'a') as stream:
                 stream.write(json.dumps({'method':self.command,'path':self.path,'model':model,'has_auth':'Authorization' in self.headers,'placeholder':self.headers.get('Authorization')=='Bearer local-no-auth'})+'\n')
     def do_GET(self):
+        if os.environ.get('MILK_FIXTURE_REDIRECT') == '1' and self.path == '/v1/models':
+            self.record()
+            self.send_response(307)
+            self.send_header('Location', '/redirect-target')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         self.record()
         if not self.authorized(): self.send_error(401); return
         if self.path.startswith('/unauthorized/'):

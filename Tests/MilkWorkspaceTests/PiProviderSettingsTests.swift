@@ -16,6 +16,10 @@ private final class LocalDiscoveryProtocol: URLProtocol {
     override func stopLoading() {}
 }
 final class PiProviderSettingsTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     private func preferences() -> UserDefaults {
         let name = "Milk.Provider.Tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
@@ -34,6 +38,55 @@ final class PiProviderSettingsTests: XCTestCase {
         let session = URLSession(configuration: config)
         addTeardownBlock { session.invalidateAndCancel(); LocalDiscoveryProtocol.handler = nil }
         return .init(session: session)
+    }
+    @MainActor func testReplacementDiscoverySaveAndRuntimeUseSameKey() async throws {
+        let fixture = try Phase6Fixture(self)
+        try fixture.manager.migrateLegacySelection(.bundled)
+        _ = try PiProfile.managed(store: fixture.manager.store)
+        let adapter = PiAdapter(runtime: fixture.manager.runtime, installations: fixture.manager, defaults: fixture.defaults)
+        let agent = AgentService(workspace: try fixture.workspace(), defaults: fixture.defaults, enabled: false, adapter: adapter)
+        defer { agent.shutdown() }
+        let model = PiSettingsModel(agent: agent, adapter: adapter)
+        model.configuration.provider = .local; model.configuration.local.authentication = .apiKey
+        model.model = "fixture-model"
+        let profile = try adapter.providerProfileIdentity.rawValue
+        let endpoint = URL(string: model.endpoint)!
+        try AgentProviderCredentials.save("stale-admin", agent: .pi, provider: "local", endpoint: endpoint, profile: profile)
+        model.token = "  replacement-sub-key\n"; model.replaceToken = true
+        let service = discovery { request in
+            XCTAssertEqual(request.url?.path, "/v1/models")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer replacement-sub-key")
+            return (200, #"{"data":[{"id":"fixture-model"}]}"#)
+        }
+        model.testConnection(discovery: service)
+        while model.busy { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(model.result.hasPrefix("Connection successful"), model.result)
+        model.save(); XCTAssertTrue(model.result.hasPrefix("Saved."), model.result)
+        XCTAssertTrue(model.tokenStored); XCTAssertTrue(model.token.isEmpty)
+        var environment = [PiProviderSupport.credentialVariable: "ambient-wrong-key"]
+        let saved = try adapter.providerConfiguration()
+        try PiProviderSupport.apply(saved, directory: try adapter.providerDirectory, environment: &environment, profile: profile)
+        XCTAssertEqual(environment[PiProviderSupport.credentialVariable], "replacement-sub-key")
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(saved), as: UTF8.self).contains("replacement-sub-key"))
+    }
+    func testRedirectDoesNotSendCredentialToTarget() async throws {
+        let root = try temporary()
+        let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let log = root.appendingPathComponent("requests.jsonl")
+        let server = Process(), output = Pipe()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = ["-u", project.appendingPathComponent("Tests/Fixtures/local_provider_fixture.py").path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["MILK_FIXTURE_REDIRECT"] = "1"; environment["MILK_FIXTURE_REQUEST_LOG"] = log.path
+        server.environment = environment; server.standardOutput = output; server.standardError = FileHandle.nullDevice
+        try server.run(); defer { server.terminate(); server.waitUntilExit() }
+        let port = try XCTUnwrap(Int(String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+        var local = PiLocalConfiguration(); local.endpoint = URL(string: "http://127.0.0.1:\(port)/v1")!; local.authentication = .apiKey
+        do { _ = try await PiLocalDiscovery().inspect(local, token: "redirect-fixture-key"); XCTFail("Redirect must be rejected") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("307"), error.localizedDescription) }
+        let requests = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(requests.count, 1, "Redirect target must receive no request")
+        XCTAssertFalse(requests.contains { $0.contains("redirect-target") })
     }
     func testEndpointValidationAndProxyPaths() throws {
         var local = PiLocalConfiguration()
@@ -95,19 +148,21 @@ final class PiProviderSettingsTests: XCTestCase {
     }
     func testLegacyMigrationCopiesCredentialAndFlagsDiscardsGlobalLimitsAndIsIdempotent() throws {
         let defaults = preferences(), endpoint = URL(string: "http://127.0.0.1:8000/legacy-" + UUID().uuidString)!
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "dev.milk.omlx", kSecAttrAccount as String: endpoint.absoluteString]
-        XCTAssertEqual(SecItemAdd(query.merging([kSecValueData as String: Data("legacy-secret".utf8)]) { _, b in b } as CFDictionary, nil), errSecSuccess)
-        defer { SecItemDelete(query as CFDictionary); try? AgentProviderCredentials.save("", agent: .pi, provider: "local", endpoint: endpoint) }
+        credentials.seedLegacy(service: "dev.milk.omlx", account: endpoint.absoluteString, token: "legacy-secret")
         let data = try JSONSerialization.data(withJSONObject: ["omlx": ["enabled": true, "endpoint": endpoint.absoluteString, "modelIDs": ["exact/model:Q4"], "defaultModel": "exact/model:Q4", "reasoningModels": ["exact/model:Q4"], "imageModels": ["exact/model:Q4"], "contextWindow": 32768, "maxTokens": 8192]])
         defaults.set(data, forKey: AgentConfiguration.key)
         let value = try PiProviderConfiguration.load(defaults)
         XCTAssertEqual(value.provider, .local); XCTAssertEqual(value.local.endpoint, endpoint)
-        XCTAssertEqual(value.local.authentication, .apiKey); XCTAssertEqual(value.local.selectedModel, "exact/model:Q4")
+        XCTAssertEqual(value.local.authentication, .none); XCTAssertEqual(value.local.selectedModel, "exact/model:Q4")
         let model = try XCTUnwrap(value.local.models.first)
         XCTAssertEqual(model.effectiveReasoning, true); XCTAssertEqual(model.effectiveImages, true)
         XCTAssertNil(model.effectiveContext); XCTAssertNil(model.effectiveOutput)
-        XCTAssertEqual(try AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: endpoint), "legacy-secret")
-        XCTAssertEqual(try AgentProviderCredentials.read(service: "dev.milk.omlx", account: endpoint.absoluteString), "legacy-secret")
+        XCTAssertTrue(credentials.queries.isEmpty, "Loading settings must not query any Keychain")
+        XCTAssertTrue(try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"))
+        XCTAssertEqual(try AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"), "legacy-secret")
+        let legacyReads = credentials.queries.filter { $0[kSecUseDataProtectionKeychain as String] as? Bool == false }.count
+        XCTAssertTrue(try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"))
+        XCTAssertEqual(credentials.queries.filter { $0[kSecUseDataProtectionKeychain as String] as? Bool == false }.count, legacyReads)
         let saved = defaults.data(forKey: PiProviderConfiguration.key)
         XCTAssertEqual(try PiProviderConfiguration.load(defaults), value)
         XCTAssertEqual(defaults.data(forKey: PiProviderConfiguration.key), saved)

@@ -50,7 +50,17 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 python3 scripts/app-version.py --plist "$app/Contents/Info.plist"
-codesign --force --options runtime --entitlements scripts/milk-app.entitlements --sign "$identity" "$app"
+entitlements="$PWD/scripts/milk-app.entitlements"
+if [[ -n "${MILK_PROVISIONING_PROFILE:-}" ]]; then
+    [[ "$identity" != "-" ]] || { print -u2 "A provisioning profile requires CODESIGN_IDENTITY."; exit 1; }
+    security cms -D -i "$MILK_PROVISIONING_PROFILE" > "$staging/profile.plist"
+    python3 scripts/keychain-signing.py "$entitlements" "$staging/profile.plist" "$staging/entitlements.plist"
+    entitlements="$staging/entitlements.plist"
+    cp "$MILK_PROVISIONING_PROFILE" "$app/Contents/embedded.provisionprofile"
+else
+    print -u2 "Milk: no provisioning profile; API-key persistence requires a provisioned build (docs/API_KEYCHAIN.md)."
+fi
+codesign --force --options runtime --entitlements "$entitlements" --sign "$identity" "$app"
 codesign --verify --deep --strict "$app"
 
 rm -rf "$PWD/output/Milk.app"

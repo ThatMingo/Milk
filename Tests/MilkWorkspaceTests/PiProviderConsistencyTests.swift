@@ -3,6 +3,10 @@ import CryptoKit
 @testable import Milk
 
 final class PiProviderConsistencyTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     private func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     // Local artifact fixture only: exercises the real installer with the pinned binary.
     private func archive(_ files: [(String, Data)]) -> Data {

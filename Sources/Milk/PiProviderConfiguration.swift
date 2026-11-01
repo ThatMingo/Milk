@@ -73,8 +73,7 @@ struct PiProviderConfiguration: Codable, Equatable {
         _ = try local.validated()
         defaults.set(try JSONEncoder().encode(self), forKey: key)
     }
-    /// Copy only; keep the legacy bytes and Keychain item for recovery. If Keychain
-    /// is unavailable migration is retried on the next read, never committed halfway.
+    /// Copy non-secret legacy settings only; preserve original bytes for recovery.
     static func load(_ defaults: UserDefaults, key: String = Self.key) throws -> Self {
         if let data = defaults.data(forKey: key) { return try JSONDecoder().decode(Self.self, from: data) }
         guard key == Self.key else { return .init() }
@@ -93,12 +92,8 @@ struct PiProviderConfiguration: Codable, Equatable {
             .init(id: $0, reasoningOverride: reasoning.contains($0) ? true : nil, imagesOverride: images.contains($0) ? true : nil)
         }
         _ = try result.local.validated()
-        if let token = try AgentProviderCredentials.read(service: "dev.milk.omlx", account: result.local.endpoint.absoluteString) {
-            if try AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: result.local.endpoint) == nil {
-                try AgentProviderCredentials.save(token, agent: .pi, provider: "local", endpoint: result.local.endpoint)
-            }
-            result.local.authentication = .apiKey
-        }
+        // Credential import is an explicit Settings action. Loading settings never
+        // touches legacy ACL-protected entries or guesses the destination profile.
         try result.save(defaults)
         return result
     }

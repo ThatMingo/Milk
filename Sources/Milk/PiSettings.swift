@@ -17,6 +17,7 @@ extension PiAdapter: AgentSettingsProviding {
         }
     }
     func saveProviderSettings(_ value: PiProviderConfiguration, token: String?, agent: AgentService) throws {
+        let token = try token.map(AgentProviderCredentials.normalized)
         _ = try value.local.validated(requireModel: value.provider == .local)
         try agent.applyAgentSettings {
             let profile = try providerProfileIdentity.rawValue
@@ -80,7 +81,18 @@ extension PiAdapter: AgentSettingsProviding {
     }
     func refreshCredentialState() {
         guard let profileIdentity, let url = URL(string: endpoint) else { tokenStored = false; return }
-        tokenStored = (try? AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: url, profile: profileIdentity)) != nil
+        do { tokenStored = try AgentProviderCredentials.exists(agent: .pi, provider: "local", endpoint: url, profile: profileIdentity) }
+        catch { tokenStored = false; result = error.localizedDescription }
+    }
+    func importLegacyCredential() {
+        do {
+            let value = try edited()
+            guard let profileIdentity else { return }
+            let found = try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: value.local.endpoint, profile: profileIdentity)
+            if found { configuration.local.authentication = .apiKey }
+            refreshCredentialState()
+            result = found ? "Legacy credential imported for this profile. Save Pi Settings to use it." : "No legacy credential found. Paste a new API key."
+        } catch { result = error.localizedDescription }
     }
     func endpointChanged() {
         token = ""; replaceToken = false; refreshCredentialState()
@@ -118,16 +130,18 @@ extension PiAdapter: AgentSettingsProviding {
         _ = try value.local.validated()
         return value
     }
-    func testConnection() {
+    func testConnection(discovery: PiLocalDiscovery = .init()) {
         busy = true
         Task {
             defer { busy = false }
             do {
                 let value = try edited()
+                let draftToken = token, draftReplacement = replaceToken
                 let key = value.local.authentication == .apiKey ? (replaceToken ? token : try AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: value.local.endpoint, profile: profileIdentity)) : nil
-                let status = try await PiLocalDiscovery().inspect(value.local, token: key)
+                let status = try await discovery.inspect(value.local, token: key)
                 guard (try adapter.providerProfileIdentity.rawValue) == profileIdentity, URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)) == value.local.endpoint,
-                      configuration.provider == value.provider, configuration.local.authentication == value.local.authentication else {
+                      configuration.provider == value.provider, configuration.local.authentication == value.local.authentication,
+                      token == draftToken, replaceToken == draftReplacement else {
                     result = "Settings changed while testing. Test Connection again."; return
                 }
                 // Replace server metadata on refresh; preserve explicit per-model declarations.
@@ -197,6 +211,9 @@ struct PiSettingsContent: View {
             SettingsRow(title: "API key", subtitle: model.replaceToken ? "Replacement pending save." : model.tokenStored ? "Stored in Keychain." : "Required for this authentication mode.") {
                 HStack { SecureField("Unchanged", text: Binding(get: { model.token }, set: { model.token = $0; model.replaceToken = true })).textFieldStyle(.roundedBorder); Button("Remove") { model.token = ""; model.replaceToken = true; model.configuration.local.authentication = .none } }
             }
+        }
+        SettingsRow(title: "Legacy API key", subtitle: "Import for this endpoint and profile. macOS may ask permission once; existing entries are preserved.") {
+            Button("Import Legacy Key…") { model.importLegacyCredential() }.disabled(model.busy || model.replaceToken)
         }
         SettingsRow(title: "Connection", subtitle: "Read-only model discovery. Pi sends all inference requests.") { Button(model.busy ? "Testing…" : "Test Connection") { model.testConnection() }.disabled(model.busy) }
         SettingsRow(title: "Default model", subtitle: "Exact server ID for Pi startup. Chat retains available session-specific choices.") {

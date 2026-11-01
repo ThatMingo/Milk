@@ -11,7 +11,7 @@ struct PiLocalDiscovery {
         let config = try configuration.validated()
         var request = URLRequest(url: config.apiBase.appendingPathComponent("models")); request.timeoutInterval = 5
         if config.authentication == .apiKey {
-            guard let token, !token.isEmpty else { throw AgentError.message("Enter or save the Local API key first.") }
+            guard let token = try token.map(AgentProviderCredentials.normalized), !token.isEmpty else { throw AgentError.message("Enter or save the Local API key first.") }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         // Never forward credentials to a redirected origin.

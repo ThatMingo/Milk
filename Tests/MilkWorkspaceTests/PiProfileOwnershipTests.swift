@@ -2,6 +2,10 @@ import XCTest
 @testable import Milk
 
 final class PiProfileOwnershipTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     @MainActor func testProviderStateFollowsCanonicalDirectoryNotExecutable() async throws {
         let fixture = try Phase6Fixture(self), manager = fixture.manager
         try manager.migrateLegacySelection(.bundled)

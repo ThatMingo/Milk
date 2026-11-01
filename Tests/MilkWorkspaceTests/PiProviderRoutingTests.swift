@@ -3,6 +3,10 @@ import XCTest
 
 /// Actual pinned Pi RPC, isolated agent data and deterministic loopback discovery/inference.
 final class PiProviderRoutingTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     @MainActor private func wait(_ label: String, until predicate: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(20)
         while !predicate() {
@@ -31,6 +35,9 @@ final class PiProviderRoutingTests: XCTestCase {
         let identity = PiProviderProfileIdentity(directory: directory).rawValue
         defer { try? AgentProviderCredentials.save("", agent: .pi, provider: "local", endpoint: endpoint, profile: identity) }
         let token = authentication == .apiKey ? "fixture-local-secret" : nil
+        // Pi prioritizes auth.json over models.json. The active Milk key must win.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"milk-local":{"type":"api_key","key":"stale-admin-fixture"}}"#.utf8).write(to: directory.appendingPathComponent("auth.json"))
         if let token { try AgentProviderCredentials.save(token, agent: .pi, provider: "local", endpoint: endpoint, profile: identity) }
         configuration.local.models = try await PiLocalDiscovery().inspect(configuration.local, token: token).models
         if unknownLimits {
