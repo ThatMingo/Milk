@@ -120,6 +120,7 @@ struct AgentApproval: Identifiable, Equatable {
     var risk: String?
     var origin: AgentDialogOrigin = .agentExtension
     var activation: AgentActivation? = nil
+    var sandboxDeadline: Date? = nil
 }
 struct AgentCommand: Identifiable, Equatable {
     enum Source: String { case `extension`, prompt, skill }

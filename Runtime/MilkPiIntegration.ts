@@ -2,9 +2,11 @@
  * Only Pi's documented extension hooks and RPC UI subprotocol are used.
  */
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
+import { installSandboxBridge } from "./MilkSandboxBridge.ts";
 import { Type } from "@earendil-works/pi-ai";
 
 export default function (pi: any) {
+  installSandboxBridge(pi);
   // Pi's documented request header hook supports null to omit SDK defaults.
   // Apply only the adapter-owned Local provider's active authentication mode.
   pi.on("before_provider_headers", (event: any, ctx: any) => {

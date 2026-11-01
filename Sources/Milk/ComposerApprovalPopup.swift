@@ -38,9 +38,14 @@ struct ComposerApprovalPopup: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label(request.command != nil ? "Pi wants to run a command" : request.title, systemImage: "hand.raised")
+                Label(request.origin != .milkSandbox && request.command != nil ? "Pi wants to run a command" : request.title, systemImage: "hand.raised")
                     .font(.system(size: 12, weight: .semibold)).lineLimit(2)
                 Spacer(minLength: 0)
+                if let deadline = request.sandboxDeadline {
+                    TimelineView(.periodic(from: .now, by: 1)) { time in
+                        Text("\(max(0, Int(ceil(deadline.timeIntervalSince(time.date)))))s").font(.system(size: 11, design: .monospaced)).foregroundStyle(MilkTheme.muted)
+                    }
+                }
                 if let risk = request.risk, !risk.isEmpty { Text(risk).font(.system(size: 10, weight: .medium)).foregroundStyle(MilkTheme.red) }
             }
             ScrollView {
@@ -58,6 +63,7 @@ struct ComposerApprovalPopup: View {
                     } else if let action = request.action, !action.isEmpty {
                         Text(action).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }
+                    if request.origin == .milkSandbox, let path = request.action { metadata("Path", value: path) }
                     if let directory = request.workingDirectory, !directory.isEmpty { metadata("In", value: (directory as NSString).abbreviatingWithTildeInPath) }
                     if let reason = request.reason, !reason.isEmpty { metadata("Why", value: reason) }
                     if let effect = request.effect, !effect.isEmpty { metadata("Effect", value: effect) }

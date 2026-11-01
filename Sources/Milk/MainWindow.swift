@@ -277,7 +277,7 @@ private struct TakeoverShell: View {
     let close:()->Void
     private var isSettings:Bool { screen == "Settings" }
     private var items:[String] {
-        isSettings ? (["General","Agents","Editor","Agent","Git","Extensions","Preview","Updates","Advanced"] + state.nativeExtensions.registry.settings.map(\.id)) : ["Installed","Enabled","Updates","Problems"]
+        isSettings ? (["General","Agents","Editor","Agent","Sandbox","Git","Extensions","Preview","Updates","Advanced"] + state.nativeExtensions.registry.settings.map(\.id)) : ["Installed","Enabled","Updates","Problems"]
     }
     private var selection:String { isSettings ? state.settingsSelection:state.extensionsSelection }
     var body: some View {

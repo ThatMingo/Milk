@@ -19,7 +19,7 @@ enum ComposerPermissionMode: String, CaseIterable, Identifiable, Codable {
     var title:String { self == .approval ? "Ask for approval":"Autonomous" }
     var symbol:String { self == .approval ? "hand.raised":"shield.lefthalf.filled" }
     var detail:String {
-        self == .approval ? "Ask before actions that require permission":"Allow Pi tools to execute without Milk approval prompts"
+        self == .approval ? "Ask before actions that require permission":"Skip ordinary agent approvals; Sandbox may still request filesystem permission"
     }
 }
 struct ComposerPermissionControl: View {

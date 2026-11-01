@@ -89,7 +89,7 @@ import MilkExtensionHost
         // downloads or copies a legacy runtime and leaves provider preferences alone.
         try? installations.migrateLegacySelection(AgentConfiguration.load(preferences).runtime)
         agentInstallations = installations
-        agent=AgentService(workspace:workspace,defaults:preferences,enabled:persist,adapter:agentAdapter ?? AgentRegistry.standard(defaults:preferences,nativeExtensions:native,installations:installations).defaultAdapter,makeBackend:backendFactory,lifecycle:owner)
+        agent=AgentService(workspace:workspace,defaults:preferences,enabled:persist,adapter:agentAdapter ?? AgentRegistry.standard(defaults:preferences,nativeExtensions:native,installations:installations).defaultAdapter,makeBackend:backendFactory,lifecycle:owner,sandboxSettings:settings.sandbox)
         installations.prepareForShutdown = { [weak agent] in try agent?.prepareForInstallationChange() }
         installations.sessionRuntimeVersions = { [weak agent] in Set(agent?.sessions.filter { $0.agentID == .pi }.compactMap { $0.metadata.lastRuntimeVersion } ?? []) }
         installations.onSelectionChanged = { [weak agent, weak extensions] in agent?.objectWillChange.send(); extensions?.refresh(workspace: nil) }
@@ -104,6 +104,7 @@ import MilkExtensionHost
             sidebarVisible=prefs["visible"] as? Bool ?? true
         }
         if persist, let data=preferences.data(forKey:persistenceKey), let value=try? JSONDecoder().decode(WorkspaceLayout.self,from:data), Set(value.elements).count == value.elements.count { layout=value }
+        agent.onSandboxSettings = { [weak self] in self?.settingsSelection = "Sandbox"; self?.takeover = "Settings" }
         workspaceObservation=workspace.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         gitObservation=workspace.git.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         workspace.layoutData={ [weak self] in self.flatMap { try? JSONEncoder().encode($0.layout) } }

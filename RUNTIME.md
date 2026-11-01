@@ -31,6 +31,19 @@ lazy: restoring a workspace or browsing retained history does not launch Pi,
 install a runtime, probe an executable or start provider polling. Agent work and
 explicit verification/provider actions can start the relevant owned processes.
 
+## Sandbox policy preparation
+
+Milk-owned policy/settings/scope types now sit above the adapter layer. Settings →
+Sandbox persists global/project policy separately from Ask/Autonomous. Temporary
+Once/Session authority is memory-only and bound to lifecycle activation/operation
+identities, never saved-chat IDs. Lifecycle invalidation removes future authority
+before drain completion. See [Sandbox policy](docs/SANDBOX_POLICY.md) for precedence,
+path snapshots, profile/environment domains and the accepted descendant limitation.
+
+This is Phase 2 preparation: the configured ON default is not execution enforcement.
+No production Seatbelt launcher, tool routing, approval popup, process cleanup,
+Git escalation, native worker or Preview execution change is enabled by it.
+
 ## Installation and compatibility
 
 Settings → Agents is authoritative. The production app has three states:

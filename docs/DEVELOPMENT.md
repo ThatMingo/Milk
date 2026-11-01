@@ -120,3 +120,18 @@ recorded in [final acceptance](AGENT_PHASE_FINAL_ACCEPTANCE.md) and the
 For native extension authoring and the independent example build, use the
 [extension guide](EXTENSION_DEVELOPMENT.md). No Pi bootstrap is required merely
 to compile Milk or a native Milk extension.
+
+## Sandbox policy tests
+
+Phase 2 policy, path, settings and grant tests use disposable files/preferences:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache" \
+swift test --cache-path "$PWD/.build/cache" --filter Sandbox
+```
+
+Add `--disable-sandbox` if the host's nested SwiftPM sandbox blocks the build.
+These tests do not launch the production sandbox or use provider credentials.
+The opt-in Phase 1 native/Pi harness is separate under `Tests/SandboxPhase1/`.
+See [Sandbox policy](SANDBOX_POLICY.md) for the current implementation and its limits.

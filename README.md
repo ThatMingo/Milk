@@ -19,8 +19,9 @@ The canonical application version is in [VERSION](VERSION), targeting **Apple Si
 - **Terminal:** a native SwiftTerm terminal running your interactive login shell.
 - **Preview:** WebKit pages, local static HTML and project development servers.
   Framework previews use the project's own tools and dependencies.
-- **Settings:** appearance/editor preferences, agent installation management and
-  agent-owned provider configuration.
+- **Settings:** appearance/editor preferences, agent installation management,
+  agent-owned provider configuration and Sandbox policy preparation. Sandbox
+  settings are saved; agent execution enforcement is not active yet.
 - **Native Milk extensions:** trusted `.milkext` packages can add UI, commands
   and services through MilkExtensionKit.
 

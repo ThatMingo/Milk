@@ -45,6 +45,7 @@ enum AgentWriterKey: Hashable {
 /// Retains every start and closing resource, including those without a native file yet.
 /// Only matching writers (or an explicit drain barrier) serialize; live sessions run concurrently.
 @MainActor final class AgentLifecycleCoordinator {
+    let sandboxGrants = SandboxGrantStore()
     private(set) var owned: [UUID: AgentRuntimeLease] = [:]
     private var barrier: Set<UUID> = []
     private var accepting = true
@@ -79,6 +80,10 @@ enum AgentWriterKey: Hashable {
             lease.valid = false; lease.work = Task { throw CancellationError() }
             return lease
         }
+        guard sandboxGrants.register(activation) else {
+            lease.valid = false; lease.work = Task { throw CancellationError() }
+            return lease
+        }
         owned[activation.token] = lease
         lease.work = Task {
             do {
@@ -88,6 +93,7 @@ enum AgentWriterKey: Hashable {
                 try await AgentResourceOwnership.$current.withValue(lease) { try await operation(resource, lease) }
                 try lease.check(); lease.phase = .running
             } catch {
+                self.sandboxGrants.invalidate(activation)
                 if lease.valid { lease.phase = .failed }
                 throw error
             }
@@ -105,6 +111,7 @@ enum AgentWriterKey: Hashable {
     }
 
     @discardableResult func stop(_ lease: AgentRuntimeLease) -> Task<Void, Error> {
+        sandboxGrants.invalidate(lease.activation)
         lease.valid = false
         if let exit = lease.exit { return exit }
         if lease.phase == .stopped { return Task {} }
@@ -144,6 +151,7 @@ enum AgentWriterKey: Hashable {
     }
     func shutdownAndWait() async -> Bool {
         accepting = false
+        sandboxGrants.shutdown()
         let leases = Array(owned.values)
         invalidateAll()
         var success = true

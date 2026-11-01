@@ -91,6 +91,8 @@ struct AgentWorkspaceState: Codable {
     @Published private(set) var indexIssue: String?
     private var retainedPayload: Data?
     private var historyRevision = UUID()
+    let sandboxSettings: SandboxSettingsStore
+    var onSandboxSettings: (() -> Void)?
     let lifecycle: AgentLifecycleCoordinator
     private var leases: [Int: AgentRuntimeLease] = [:]
     private var actionSessions: [UUID: Int] = [:]
@@ -121,7 +123,8 @@ struct AgentWorkspaceState: Codable {
         return result
     }
     init(workspace: WorkspaceStore, defaults: UserDefaults, enabled: Bool, adapter: (any AgentAdapter)? = nil,
-         makeBackend: (@MainActor () -> AgentBackend)? = nil, registry: AgentRegistry? = nil, sessionIndex: AgentSessionIndex? = nil, lifecycle: AgentLifecycleCoordinator? = nil) {
+         makeBackend: (@MainActor () -> AgentBackend)? = nil, registry: AgentRegistry? = nil, sessionIndex: AgentSessionIndex? = nil, lifecycle: AgentLifecycleCoordinator? = nil, sandboxSettings: SandboxSettingsStore? = nil) {
+        self.sandboxSettings = sandboxSettings ?? SandboxSettingsStore(defaults: defaults, persist: enabled)
         self.lifecycle = lifecycle ?? AgentLifecycleCoordinator()
         self.workspace = workspace; self.defaults = defaults; self.enabled = enabled
         var registered = registry ?? AgentRegistry.standard(defaults: defaults)
@@ -442,7 +445,7 @@ struct AgentWorkspaceState: Codable {
         let status = availability(session)
         if let i = sessions.firstIndex(where: { $0.id == id }) { sessions[i].recordAvailability(status) }
         guard status.canAttemptResume, let owner = registry.adapter(for: session.agentID) else { throw AgentError.message(status.detail) }
-        let context = AgentBackendContext(permission: conversations[id]?.permission ?? configuration.defaultPermission, lifecycle: lifecycle)
+        let context = AgentBackendContext(permission: conversations[id]?.permission ?? configuration.defaultPermission, lifecycle: lifecycle, sandboxSettings: sandboxSettings)
         let generation = workspaceGeneration
         let activation = AgentActivation(agentID: session.agentID, workspace: root, sessionID: id)
         backendTokens[id] = activation
@@ -641,6 +644,7 @@ struct AgentWorkspaceState: Codable {
         run(id) { try await self.ensureBackend(id); try await self.backends[id]?.rename(value) }
     }
     func respond(_ request: AgentApproval, session id: Int, value: String? = nil, confirmed: Bool? = nil, cancelled: Bool = false) {
+        if request.origin == .milkSandbox, value == "Sandbox Settings" { onSandboxSettings?() }
         if respondToExtension(request,session:id,value:value,cancelled:cancelled) { return }
         if respondToPreview(request, session: id, value: value, cancelled: cancelled) { return }
         guard let backend = backends[id], request.activation == backendTokens[id],
@@ -766,6 +770,7 @@ struct AgentWorkspaceState: Codable {
             conversations[id]?.notice = text
         case .failure(let text): conversations[id]?.error = text; setState(.error, id: id)
         case .runtime(let status):
+            if status.phase == .stopped, let activation = backendTokens[id] { lifecycle.sandboxGrants.invalidate(activation) }
             if status.phase == .starting || status.phase == .failed || status.phase == .stopped { slashCommands[id]=nil }
             runtimeStatuses[id] = status
             if status.phase == .ready, let i = sessions.firstIndex(where: { $0.id == id }), let owner = registry.adapter(for: sessions[i].agentID) {

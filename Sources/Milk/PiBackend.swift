@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
     private let nativeExtensions: NativeExtensionManager?
     private var nativeSession: Int?
     private var nativeTasks: [String:Task<Void,Never>] = [:]
+    private let sandboxSettings: SandboxSettingsStore?
+    private let sandboxProfiles: [SandboxProfileRoot]
+    private var sandbox: PiSandboxExecution?
     private let discoveryOnly: Bool
     private let providerProfileIdentityLoader: @MainActor () throws -> String?
     private let providerConfigurationLoader: @MainActor () throws -> PiProviderConfiguration
@@ -51,7 +54,9 @@ import UniformTypeIdentifiers
     }
     init(runtime: PiRuntimeService = PiRuntimeService(), discoveryOnly: Bool = false, nativeExtensions: NativeExtensionManager? = nil,
          configuration: AgentConfiguration = AgentConfiguration(), providerConfiguration: PiProviderConfiguration = .init(), providerConfigurationLoader: (@MainActor () throws -> PiProviderConfiguration)? = nil, providerProfileIdentityLoader: @escaping @MainActor () throws -> String? = { nil }, lifecycle: AgentLifecycleCoordinator? = nil,
+         sandboxSettings: SandboxSettingsStore? = nil, sandboxProfiles: [SandboxProfileRoot] = [],
          resolveLaunch: (@MainActor (PiRuntimeMode, AgentLifecycleCoordinator?) async throws -> PiLaunchContext)? = nil) {
+        self.sandboxSettings = sandboxSettings; self.sandboxProfiles = sandboxProfiles
         self.providerProfileIdentityLoader = providerProfileIdentityLoader
         self.providerConfigurationLoader = providerConfigurationLoader ?? { providerConfiguration }
         self.lifecycle = lifecycle; self.launchConfiguration = configuration; self.discoveryOnly = discoveryOnly; self.nativeExtensions = nativeExtensions
@@ -76,10 +81,24 @@ import UniformTypeIdentifiers
             environment["MILK_PERMISSION_MODE"] = configuration.defaultPermission.rawValue
             if discoveryOnly { environment["MILK_PREVIEW_DISCOVERY"] = "1" }
             else { environment.removeValue(forKey: "MILK_PREVIEW_DISCOVERY") }
+            var sandboxProfile: String?
+            if let settings = sandboxSettings {
+                let owner = lifecycle?.sandboxGrants ?? SandboxGrantStore()
+                let activation = AgentResourceOwnership.current?.activation ?? AgentActivation(agentID: .pi, workspace: workspace, sessionID: session.id)
+                if AgentResourceOwnership.current == nil { guard owner.register(activation) else { throw CancellationError() } }
+                let execution = try PiSandboxExecution(location: location, settings: settings, grants: owner, activation: activation,
+                    mode: configuration.defaultPermission, purpose: discoveryOnly ? .previewInspection : .conversation, inactiveProfiles: sandboxProfiles)
+                execution.event = { [weak self] in self?.onEvent?($0) }
+                execution.invalidated = { [weak self] in guard let self else { return }; self.client.shutdown(); self.onEvent?(.runtime(self.runtimeStatus(.failed, detail: "Sandbox settings changed. Reconnect to apply the new policy."))) }
+                sandbox = execution
+                if execution.enabled { environment["TMPDIR"] = execution.runtimeTemporaryDirectory.path }
+                sandboxProfile = try execution.runtimeProfile()
+                if execution.enabled { environment["MILK_SANDBOX_ON"] = "1" } else { environment.removeValue(forKey: "MILK_SANDBOX_ON") }
+            } else { environment.removeValue(forKey: "MILK_SANDBOX_ON") }
             // Prevent startup catalog refreshes/self updates; the binary and model capabilities stay versioned.
             environment["PI_OFFLINE"] = "1"
             environment.removeValue(forKey:"MILK_NATIVE_CATALOG")
-            if !discoveryOnly, let nativeExtensions { environment["MILK_NATIVE_CATALOG"]=nativeExtensions.catalogURL.path }
+            if !discoveryOnly, sandbox?.enabled != true, let nativeExtensions { environment["MILK_NATIVE_CATALOG"]=nativeExtensions.catalogURL.path }
             let providerConfiguration = try providerConfigurationLoader()
             try PiProviderSupport.apply(providerConfiguration, directory: location.dataProfile.directory, environment: &environment, profile: providerProfileIdentityLoader())
             var arguments = ["--mode", "rpc", "--offline", "-e", location.integration.path]
@@ -101,7 +120,7 @@ import UniformTypeIdentifiers
                 self.dismissDialogs(); self.onEvent?(.runtime(self.runtimeStatus(.failed, detail: text)))
                 self.onEvent?(.failure(text))
             }
-            try client.launch(executable: location.executable, arguments: arguments, workspace: workspace, environment: environment)
+            try client.launch(executable: location.executable, arguments: arguments, workspace: workspace, environment: environment, sandboxProfile: sandboxProfile)
             if providerConfiguration.provider == .local, let selected = providerConfiguration.local.selectedModel {
                 _ = try await client.request("set_model", ["provider": .string(PiProviderSupport.providerID), "modelId": .string(selected)])
             }
@@ -199,6 +218,7 @@ import UniformTypeIdentifiers
         }
     }
     func stop() async throws {
+        sandbox?.cancelOperations()
         try await clearQueue()
         for dialog in Array(dialogs.values) { try respond(dialog, value: nil, confirmed: nil, cancelled: true) }
         _ = try await client.request("abort", timeout: 60)
@@ -217,12 +237,14 @@ import UniformTypeIdentifiers
     }
     func setPermission(_ mode: ComposerPermissionMode) async throws {
         _ = try await client.request("prompt", ["message": .string("/milk-permission \(mode.rawValue)")])
+        sandbox?.updateMode(mode)
     }
     func rename(_ title: String) async throws {
         _ = try await client.request("set_session_name", ["name": .string(title)])
         onEvent?(.sessionName(title))
     }
     func respond(_ approval: AgentApproval, response: AgentDialogResponse) throws {
+        if approval.origin == .milkSandbox { try sandbox?.respond(approval, response: response); return }
         let value: String?, confirmed: Bool?, cancelled: Bool
         switch response {
         case .value(let text): value = text; confirmed = nil; cancelled = false
@@ -238,8 +260,8 @@ import UniformTypeIdentifiers
         if let id = approval.activityID, var activity = activities[id] { activity.status = .running; activities[id] = activity; onEvent?(.activity(activity)) }
         dialogs.removeValue(forKey: approval.id); onEvent?(.dismissApproval(approval.id))
     }
-    func shutdown() { for task in maintenanceTasks.values { task.cancel() }; maintenanceTasks = [:]; for task in nativeTasks.values { task.cancel() }; nativeTasks=[:]; runGeneration = UUID(); snapshotTask?.cancel(); dismissDialogs(); onEvent = nil; client.onRecord = nil; client.onFailure = nil; client.shutdown() }
-    func shutdownAndWait() async throws { shutdown(); try await client.shutdownAndWait() }
+    func shutdown() { sandbox?.shutdown(); for task in maintenanceTasks.values { task.cancel() }; maintenanceTasks = [:]; for task in nativeTasks.values { task.cancel() }; nativeTasks=[:]; runGeneration = UUID(); snapshotTask?.cancel(); dismissDialogs(); onEvent = nil; client.onRecord = nil; client.onFailure = nil; client.shutdown() }
+    func shutdownAndWait() async throws { shutdown(); await sandbox?.shutdownAndWait(); try await client.shutdownAndWait() }
     private func dismissDialogs() { editingApproval = nil; for id in dialogs.keys { onEvent?(.dismissApproval(id)) }; dialogs = [:] }
 
     private static func model(_ value: JSONValue) -> AgentModel? {
@@ -376,6 +398,21 @@ import UniformTypeIdentifiers
     }
     private func handleUI(_ value: JSONValue) {
         let method = value["method"].string ?? ""
+        if method == "input", let text = value["title"].string, let data = text.data(using: .utf8),
+           let request = try? JSONDecoder().decode(JSONValue.self, from: data), request["milkSandbox"].number == 1, let id = value["id"].string {
+            nativeTasks[id] = Task { [weak self] in
+                guard let self else { return }; defer { self.nativeTasks[id] = nil }
+                let result: JSONValue
+                do { guard let sandbox = self.sandbox else { throw AgentError.message("Sandbox bridge is unavailable.") }; result = try await sandbox.handle(request) }
+                catch { result = .object(["error": .string(error.localizedDescription)]) }
+                if !Task.isCancelled { try? self.client.write(["type": .string("extension_ui_response"), "id": .string(id), "value": .string(result.encodedString)]) }
+            }
+            return
+        }
+        if method == "setStatus", ["milk-sandbox-cancel", "milk-sandbox-finish"].contains(value["statusKey"].string ?? ""),
+           let text = value["statusText"].string, let data = text.data(using: .utf8), let request = try? JSONDecoder().decode(JSONValue.self, from: data) {
+            sandbox?.control(request, cancel: value["statusKey"].string == "milk-sandbox-cancel"); return
+        }
         if method == "input", let text=value["title"].string, let data=text.data(using:.utf8),
            let request=try? JSONDecoder().decode(JSONValue.self,from:data), request["milkNativeBridge"].number == 1, let id=value["id"].string {
             nativeTasks[id]=Task { [weak self] in
@@ -383,6 +420,7 @@ import UniformTypeIdentifiers
                 defer { self.nativeTasks[id]=nil }
                 let result: JSONValue
                 do {
+                    guard self.sandbox?.enabled != true else { throw AgentError.message("Agent-callable native workers are not available while Sandbox is ON.") }
                     guard let manager=self.nativeExtensions, let workspace=self.workspace, let session=self.nativeSession else { throw AgentError.message("Native extension bridge is unavailable.") }
                     let output: String
                     if let prompt=request["prompt"].string { output=try manager.piPrompt(prompt,workspace:workspace) }

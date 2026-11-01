@@ -141,12 +141,26 @@ struct PiRPCRecordDecoder {
     }
 }
 
+/// Keeps the existing OFF transport and the identity-preserving ON process behind one seam.
+private final class PiChild: @unchecked Sendable {
+    let plain: Process?
+    let owned: SandboxProcess?
+    init(plain: Process) { self.plain = plain; owned = nil }
+    init(owned: SandboxProcess) { self.owned = owned; plain = nil }
+    var isRunning: Bool { owned?.isRunning ?? plain?.isRunning ?? false }
+    var terminationStatus: Int32 { owned?.terminationStatus ?? plain?.terminationStatus ?? -1 }
+    var processIdentifier: Int32 { owned?.processIdentifier ?? plain?.processIdentifier ?? -1 }
+    func terminate() { if let owned { owned.terminate() } else { plain?.terminate() } }
+    func waitUntilExit() { if let owned { owned.waitUntilExit() } else { plain?.waitUntilExit() } }
+    func read(_ handle: FileHandle) -> Data { owned?.read(handle) ?? handle.availableData }
+}
+
 /// Owns one process, its async request table, deadlines, byte framing, stderr, and shutdown.
 @MainActor final class PiRPCClient {
     var onRecord: ((JSONValue) -> Void)?
     var onFailure: ((String) -> Void)?
     private(set) var stderr = ""
-    private var process: Process?
+    private var process: PiChild?
     private var input: FileHandle?
     private var generation = UUID()
     private var closing = false
@@ -155,19 +169,26 @@ struct PiRPCRecordDecoder {
     private let writer = DispatchQueue(label: "dev.milk.pi.stdin")
     var isRunning: Bool { process?.isRunning == true && !closing }
 
-    func launch(executable: URL, arguments: [String], workspace: URL, environment: [String: String]) throws {
+    func launch(executable: URL, arguments: [String], workspace: URL, environment: [String: String], sandboxProfile: String? = nil) throws {
         guard process == nil else { throw AgentError.message("Pi is already started.") }
-        let child = Process(), stdin = Pipe(), stdout = Pipe(), errors = Pipe()
-        child.executableURL = executable; child.arguments = arguments; child.currentDirectoryURL = workspace
-        child.environment = environment; child.standardInput = stdin; child.standardOutput = stdout; child.standardError = errors
-        try child.run()
+        let stdin = Pipe(), stdout = Pipe(), errors = Pipe()
+        let child: PiChild
+        if let sandboxProfile {
+            let command = SandboxProfileBuilder.command(executable: executable, arguments: arguments, profile: sandboxProfile)
+            child = PiChild(owned: try SandboxProcess(executable: command.0, arguments: command.1, directory: workspace, environment: environment, input: stdin, output: stdout, errors: errors))
+        } else {
+            let plain = Process()
+            plain.executableURL = executable; plain.arguments = arguments; plain.currentDirectoryURL = workspace
+            plain.environment = environment; plain.standardInput = stdin; plain.standardOutput = stdout; plain.standardError = errors
+            try plain.run(); child = PiChild(plain: plain)
+        }
         process = child; input = stdin.fileHandleForWriting; closing = false
         let token = generation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let reader = stdout.fileHandleForReading
             var decoder = PiRPCRecordDecoder()
             while true {
-                let data = reader.availableData
+                let data = child.read(reader)
                 if data.isEmpty { break }
                 let batch = decoder.append(data)
                 if !batch.records.isEmpty || batch.failure != nil {
@@ -186,7 +207,7 @@ struct PiRPCRecordDecoder {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let reader = errors.fileHandleForReading
             while true {
-                let data = reader.availableData
+                let data = child.read(reader)
                 if data.isEmpty { break }
                 DispatchQueue.main.async {
                     guard let self, self.generation == token else { return }
@@ -255,7 +276,8 @@ struct PiRPCRecordDecoder {
         for id in Array(pending.keys) { finish(id, .failure(AgentError.message("Pi runtime closed."))) }
         let handle = input; input = nil
         writer.async { try? handle?.close() } // EOF is Pi's supported graceful shutdown.
-        if let child = process {
+        if let child = process, child.owned != nil { child.terminate() }
+        if let child = process, child.owned == nil {
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 if child.isRunning { child.terminate() }
             }
