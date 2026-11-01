@@ -50,6 +50,8 @@ struct AgentMessage: Identifiable, Codable, Equatable {
     var text: String
     var streaming = false
     var blocks: [AgentContentBlock]?
+    // RPC messages have timestamps, not the JSONL entry IDs. Optional for old caches.
+    var sourceID: String? = nil
 }
 struct AgentActivity: Identifiable, Codable, Equatable {
     enum Status: String, Codable { case running, completed, error, cancelled, approval }
@@ -61,6 +63,10 @@ struct AgentActivity: Identifiable, Codable, Equatable {
     var status: Status = .running
     var started = Date()
     var duration: Double?
+    static func transcriptID(_ rawID: String, messageID: String?) -> String {
+        guard let messageID else { return rawID }
+        return "tool-" + AgentSessionMetadata.stableID([messageID, rawID]).uuidString
+    }
 }
 struct AgentFileChange: Identifiable, Codable, Equatable {
     var id: String { path }
@@ -129,8 +135,9 @@ struct AgentCommand: Identifiable, Equatable {
 }
 enum AgentEvent {
     case slashCommands([AgentCommand])
-    case historyBegin
+    case history(AgentHistory)
     case started, settled(aborted: Bool)
+    case retrySucceeded
     case message(AgentMessage), contentDelta(AgentContentDelta)
     case activity(AgentActivity)
     case changes([AgentFileChange])

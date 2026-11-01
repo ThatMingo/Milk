@@ -7,6 +7,15 @@ struct SelectableContent: NSViewRepresentable {
     var size: CGFloat = 14
     var monospaced = false
     var source = false
+    struct RenderInput: Equatable {
+        var text: String
+        var size: CGFloat
+        var monospaced: Bool
+        var source: Bool
+        var colorScheme: ColorScheme
+    }
+    final class Coordinator { var rendered: RenderInput? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSTextView {
         let view=NSTextView()
         view.isEditable=false; view.isSelectable=true; view.drawsBackground=false
@@ -18,7 +27,12 @@ struct SelectableContent: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSTextView,context:Context) {
+        let metric = ChatRenderMetrics.begin()
+        defer { ChatRenderMetrics.end("native.text.update", metric) }
         view.isSelectable=context.environment.isEnabled
+        let input = RenderInput(text: text, size: size, monospaced: monospaced, source: source, colorScheme: context.environment.colorScheme)
+        guard context.coordinator.rendered != input else { return }
+        context.coordinator.rendered = input
         let font=monospaced ? NSFont.monospacedSystemFont(ofSize:size,weight:.regular):NSFont.systemFont(ofSize:size)
         let paragraph=NSMutableParagraphStyle(); paragraph.lineSpacing=source ? 0:4
         if source { paragraph.minimumLineHeight=19; paragraph.maximumLineHeight=19 }

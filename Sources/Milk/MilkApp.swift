@@ -40,7 +40,7 @@ struct MilkApp {
 }
 
 @MainActor final class MilkAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
-    let state = CommandLine.arguments.contains("--verify-slash-commands") ? SlashCommandVerification.makeState() : CommandLine.arguments.contains("--verify-extensions") ? ExtensionVerification.makeState() : CommandLine.arguments.contains("--verify-terminal") ? TerminalVerification.makeState() : CommandLine.arguments.contains("--verify-settings") ? SettingsVerification.makeState() : CommandLine.arguments.contains("--verify-agent") ? AgentVerification.makeState() : ShellState()
+    let state = CommandLine.arguments.contains(where: { ["--verify-chat-stability", "--verify-chat-quality"].contains($0) }) ? ChatStabilityVerification.makeState() : CommandLine.arguments.contains("--verify-slash-commands") ? SlashCommandVerification.makeState() : CommandLine.arguments.contains("--verify-extensions") ? ExtensionVerification.makeState() : CommandLine.arguments.contains("--verify-terminal") ? TerminalVerification.makeState() : CommandLine.arguments.contains("--verify-settings") ? SettingsVerification.makeState() : CommandLine.arguments.contains("--verify-agent") ? AgentVerification.makeState() : ShellState()
     private(set) var window: NSWindow!
     private var terminationPending = false
     private var terminationApproved = false
@@ -107,6 +107,7 @@ struct MilkApp {
         NSApp.activate(ignoringOtherApps: true)
         state.resizeWindow = { [weak self] grid, animated in self?.updateWindow(grid:grid,animated:animated) }
         windowDidResize(Notification(name:NSWindow.didResizeNotification))
+        if CommandLine.arguments.contains("--verify-chat-stability") || CommandLine.arguments.contains("--verify-chat-quality") { Task { await ChatStabilityVerification.run(state: state, window: window) } }
         if CommandLine.arguments.contains("--verify-slash-commands") { Task { await SlashCommandVerification.run(state:state,window:window) } }
         if CommandLine.arguments.contains("--verify-extensions") { Task { await ExtensionVerification.run(state:state,window:window) } }
         if CommandLine.arguments.contains("--verify-terminal") {

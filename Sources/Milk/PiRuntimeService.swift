@@ -79,20 +79,66 @@ struct PiRuntimeService {
 /// LF byte framing preserves split UTF-8 scalars and Unicode separators inside JSON strings.
 struct PiJSONLFramer {
     private var buffer = Data()
+    private var scanned = 0
+    private(set) var scannedByteCount = 0
     static let maximumRecordBytes = 32 * 1024 * 1024
     mutating func append(_ data: Data) throws -> [Data] {
         buffer.append(data)
-        var lines: [Data] = []
-        while let end = buffer.firstIndex(of: 10) {
-            var line = Data(buffer[..<end]); buffer.removeSubrange(...end)
-            if line.last == 13 { line.removeLast() }
-            guard line.count <= Self.maximumRecordBytes else { throw AgentError.message("Pi sent an oversized RPC record.") }
-            if !line.isEmpty { lines.append(line) }
+        var lines: [Data] = [], consumed = 0
+        try buffer.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            guard let base = bytes.baseAddress else { return }
+            var search = scanned
+            while search < bytes.count {
+                let remaining = bytes.count - search
+                guard let newline = memchr(base.advanced(by: search), 10, remaining) else {
+                    scannedByteCount += remaining
+                    break
+                }
+                let end = base.distance(to: UnsafeRawPointer(newline))
+                scannedByteCount += end - search + 1
+                let lineEnd = end > consumed && bytes[end - 1] == 13 ? end - 1 : end
+                guard lineEnd - consumed <= Self.maximumRecordBytes else { throw AgentError.message("Pi sent an oversized RPC record.") }
+                if lineEnd > consumed { lines.append(Data(bytes: base.advanced(by: consumed), count: lineEnd - consumed)) }
+                consumed = end + 1; search = consumed
+            }
         }
+        // A growing, unfinished history record is scanned once, not from its
+        // beginning on every pipe read. Compact only after extracting all lines.
+        scanned = buffer.count - consumed
+        if consumed > 0 { buffer.removeFirst(consumed) }
         guard buffer.count <= Self.maximumRecordBytes else { throw AgentError.message("Pi sent an oversized unfinished RPC record.") }
         return lines
     }
     var hasPartialRecord: Bool { !buffer.isEmpty }
+}
+
+/// One decoder per stdout reader. Framing and JSON allocation stay off the main
+/// actor; ordered domain delivery and request continuations remain on it.
+struct PiRPCReadBatch {
+    var records: [JSONValue] = []
+    var failure: String?
+}
+struct PiRPCRecordDecoder {
+    private var framer = PiJSONLFramer()
+    var hasPartialRecord: Bool { framer.hasPartialRecord }
+    mutating func append(_ data: Data) -> PiRPCReadBatch {
+        let framing = ChatRenderMetrics.begin()
+        let lines: [Data]
+        do { lines = try framer.append(data) }
+        catch { return .init(failure: error.localizedDescription) }
+        ChatRenderMetrics.end("rpc.frame.worker", framing, units: data.count)
+        var batch = PiRPCReadBatch()
+        for line in lines {
+            let metric = ChatRenderMetrics.begin()
+            defer { ChatRenderMetrics.end("rpc.decode.worker", metric, units: line.count) }
+            let record: JSONValue
+            do { record = try JSONDecoder().decode(JSONValue.self, from: line) }
+            catch { batch.failure = "Pi sent malformed RPC JSON. Restart the runtime to reconnect."; return batch }
+            guard record["type"].string != nil else { batch.failure = "Pi sent an RPC record without a type."; return batch }
+            batch.records.append(record)
+        }
+        return batch
+    }
 }
 
 /// Owns one process, its async request table, deadlines, byte framing, stderr, and shutdown.
@@ -102,7 +148,6 @@ struct PiJSONLFramer {
     private(set) var stderr = ""
     private var process: Process?
     private var input: FileHandle?
-    private var framer = PiJSONLFramer()
     private var generation = UUID()
     private var closing = false
     private var pending: [String: CheckedContinuation<JSONValue, Error>] = [:]
@@ -120,13 +165,23 @@ struct PiJSONLFramer {
         let token = generation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let reader = stdout.fileHandleForReading
+            var decoder = PiRPCRecordDecoder()
             while true {
                 let data = reader.availableData
                 if data.isEmpty { break }
-                DispatchQueue.main.async { self?.receive(data, generation: token) }
+                let batch = decoder.append(data)
+                if !batch.records.isEmpty || batch.failure != nil {
+                    DispatchQueue.main.async {
+                        guard let self, self.generation == token, !self.closing else { return }
+                        self.receive(batch.records, generation: token)
+                        if let failure = batch.failure, !self.closing { self.fail(failure) }
+                    }
+                }
+                if batch.failure != nil { break }
             }
             child.waitUntilExit()
-            DispatchQueue.main.async { self?.exited(child.terminationStatus, generation: token) }
+            let partial = decoder.hasPartialRecord
+            DispatchQueue.main.async { self?.exited(child.terminationStatus, generation: token, hasPartialRecord: partial) }
         }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let reader = errors.fileHandleForReading
@@ -165,15 +220,13 @@ struct PiJSONLFramer {
             catch { DispatchQueue.main.async { guard self?.generation == token else { return }; self?.fail("Pi stdin failed: \(error.localizedDescription)") } }
         }
     }
-    private func receive(_ data: Data, generation token: UUID) {
-        guard token == generation else { return }
+    private func receive(_ records: [JSONValue], generation token: UUID) {
+        guard token == generation, !closing else { return }
+        let metric = ChatRenderMetrics.begin()
+        defer { ChatRenderMetrics.end("rpc.deliver.main", metric, units: records.count) }
         do {
-            for line in try framer.append(data) {
-                let record: JSONValue
-                do { record = try JSONDecoder().decode(JSONValue.self, from: line) }
-                catch { throw AgentError.message("Pi sent malformed RPC JSON. Restart the runtime to reconnect.") }
-                guard let type = record["type"].string else { throw AgentError.message("Pi sent an RPC record without a type.") }
-                if type == "response" {
+            for record in records {
+                if record["type"].string == "response" {
                     guard let id = record["id"].string else { throw AgentError.message(record["error"].string ?? "Pi returned an uncorrelated protocol error.") }
                     if record["success"].bool { finish(id, .success(record["data"])) }
                     else { finish(id, .failure(AgentError.message(record["error"].string ?? "Pi rejected the request."))) }
@@ -189,13 +242,13 @@ struct PiJSONLFramer {
         for id in Array(pending.keys) { finish(id, .failure(AgentError.message(text))) }
         onFailure?(text); shutdown()
     }
-    private func exited(_ code: Int32, generation token: UUID) {
+    private func exited(_ code: Int32, generation token: UUID, hasPartialRecord: Bool) {
         guard generation == token else { return }
         let expected = closing
         process = nil; input = nil
         let message = "Pi exited (\(code))." + (stderr.isEmpty ? "" : " " + stderr)
         for id in Array(pending.keys) { finish(id, .failure(AgentError.message(message))) }
-        if !expected { onFailure?(framer.hasPartialRecord ? "Pi exited during an RPC record. \(message)" : message) }
+        if !expected { onFailure?(hasPartialRecord ? "Pi exited during an RPC record. \(message)" : message) }
     }
     func shutdown() {
         guard !closing else { return }; closing = true

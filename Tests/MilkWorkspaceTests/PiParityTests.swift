@@ -159,7 +159,7 @@ final class PiParityTests: XCTestCase {
         var phases: [RuntimeStatus.Phase] = [], history = false
         backend.onEvent = { event in
             if case .runtime(let status) = event { phases.append(status.phase) }
-            if case .historyBegin = event { history = true }
+            if case .history = event { history = true }
         }
         do {
             try await backend.start(workspace: root, session: .init(id: 0, title: "Missing bridge"), configuration: configuration)
@@ -193,4 +193,19 @@ final class PiParityTests: XCTestCase {
         try await wait("settled") { settled == 1 }
         try await backend.shutdownAndWait()
     }
+    @MainActor func testCompactionCompletionCancellationAndFailureResolveProgressNotices() async throws {
+        let (root, backend, configuration) = try peer(ready: true)
+        addTeardownBlock { try await backend.shutdownAndWait() }
+        var notices: [String] = [], failures: [String] = []
+        backend.onEvent = { event in
+            if case .notice(let text) = event { notices.append(text) }
+            if case .failure(let text) = event { failures.append(text) }
+        }
+        try await backend.start(workspace: root, session: .init(id: 0, title: "Compaction"), configuration: configuration)
+        try await backend.send(.init(text: "compaction-completion"))
+        try await wait("compaction completion") { notices.count == 6 }
+        XCTAssertEqual(notices.enumerated().filter { $0.offset % 2 == 1 }.map(\.element), ["Pi context compacted.", "Pi context compaction cancelled.", "Pi context compaction failed."])
+        XCTAssertEqual(failures, ["fixture compaction failed"])
+    }
+
 }

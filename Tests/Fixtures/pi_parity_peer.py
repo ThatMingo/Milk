@@ -49,6 +49,14 @@ for line in sys.stdin:
                           {"type": "agent_end"}, {"type": "future_compatible_event"},
                           {"type": "auto_retry_end", "success": False, "finalError": "fixture retry exhausted"}]:
                 emit(event)
+        elif request["message"] == "compaction-completion":
+            for event in [{"type": "compaction_start", "reason": "manual"},
+                          {"type": "compaction_end", "aborted": False, "result": {"summary": "fixture summary"}},
+                          {"type": "compaction_start", "reason": "manual"},
+                          {"type": "compaction_end", "aborted": True},
+                          {"type": "compaction_start", "reason": "manual"},
+                          {"type": "compaction_end", "aborted": False, "errorMessage": "fixture compaction failed"}]:
+                emit(event)
         else:
             emit({"type": "agent_settled", "aborted": False})
     emit({"type": "response", "id": request["id"], "success": True, "data": data})

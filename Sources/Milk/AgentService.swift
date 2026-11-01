@@ -14,6 +14,9 @@ struct SessionConversation: Codable {
     var notice: String?
     var error: String?
     var scrollAnchor: String?
+    var scrollOffset: Double? = nil
+    var scrollWidth: Double? = nil
+    var scrollAnchorOwner: String? = nil
     var followsTail = true
 }
 struct StoredPrompt: Codable {
@@ -32,28 +35,42 @@ struct AgentWorkspaceState: Codable {
 
 /// Coordinates agent lifetimes and per-session state; filesystem/layout stay with WorkspaceStore.
 @MainActor final class AgentService: ObservableObject {
-    @Published private(set) var slashCommands: [Int:[AgentCommand]] = [:]
+    @Published private(set) var slashCommands: [Int:[AgentCommand]] = [:] { didSet { composerChanges.send() } }
     private struct ExtensionDecision { let session: Int; let owner: String; let continuation: CheckedContinuation<Void,Error> }
     private var extensionDecisions: [String:ExtensionDecision] = [:]
-    @Published var sessions: [AgentSession] = [] { didSet { persist() } }
+    @Published var sessions: [AgentSession] = [] { didSet { persist(); composerChanges.send() } }
     @Published var selectedSession = -1 {
         didSet {
+            composerChanges.send()
             workspace.selectedSession = selectedSession
             if let i = sessions.firstIndex(where: { $0.id == selectedSession }), sessions[i].state == .unread { sessions[i].state = .idle }
             if !restoring, enabled, sessions.contains(where: { $0.id == selectedSession }) { connect(selectedSession) }
         }
     }
-    @Published var conversations: [Int: SessionConversation] = [:] { didSet { persist() } }
+    @Published var conversations: [Int: SessionConversation] = [:] {
+        didSet {
+            let old = oldValue[selectedSession], new = conversations[selectedSession]
+            if old?.draft != new?.draft || old?.modelID != new?.modelID || old?.effort != new?.effort { composerChanges.send() }
+            scheduleConversationCheckpoint()
+        }
+    }
+    /// Catalog/composer inputs, never transcript tokens or scroll geometry.
+    let composerChanges = PassthroughSubject<Void, Never>()
+    private var checkpointTask: Task<Void, Never>?
+    private var streamBuffers: [Int: AgentStreamBuffer] = [:]
+    private var streamTasks: [Int: Task<Void, Never>] = [:]
+    private var retryingErrors: [Int: String] = [:]
+    private var runtimeMessageIDs: [Int: [String: String]] = [:]
     @Published private(set) var configuration: AgentConfiguration
     @Published private(set) var runtimeStatuses: [Int: RuntimeStatus] = [:]
-    @Published private(set) var models: [Int: [AgentModel]] = [:]
-    @Published private(set) var efforts: [Int: [String: [String]]] = [:]
-    @Published private(set) var editingApprovals: [Int: AgentApproval] = [:]
-    @Published private(set) var approvals: [Int: [AgentApproval]] = [:]
+    @Published private(set) var models: [Int: [AgentModel]] = [:] { didSet { composerChanges.send() } }
+    @Published private(set) var efforts: [Int: [String: [String]]] = [:] { didSet { composerChanges.send() } }
+    @Published private(set) var editingApprovals: [Int: AgentApproval] = [:] { didSet { composerChanges.send() } }
+    @Published private(set) var approvals: [Int: [AgentApproval]] = [:] { didSet { composerChanges.send() } }
     @Published private(set) var history: [SavedAgentSession] = []
     @Published private(set) var deletingSessionPath: String?
-    @Published private(set) var runningSessions: Set<Int> = []
-    @Published private(set) var pendingActions: Set<Int> = []
+    @Published private(set) var runningSessions: Set<Int> = [] { didSet { composerChanges.send() } }
+    @Published private(set) var pendingActions: Set<Int> = [] { didSet { composerChanges.send() } }
     private struct PreviewDecision {
         var session: Int
         var configuration: PreviewConfiguration
@@ -123,15 +140,15 @@ struct AgentWorkspaceState: Codable {
         guard let root = workspace.workspace.map({ SessionWorkspace($0.url) }), session.metadata.workspace == nil || session.metadata.workspace == root else {
             return .init(state: .workspaceUnavailable, detail: "Open the session's owning project first.")
         }
-        let inspected = owner.sessionAvailability(session, workspace: root)
-        guard inspected.canAttemptResume else { return inspected }
         if sessions.contains(where: { $0.metadata.id == session.metadata.id }), let status = runtimeStatuses[session.id] {
             if status.phase == .ready { return .init(state: .available, detail: "Connected to the owning agent.") }
             if let result = status.compatibility, result.state != .supported {
                 return .init(state: result.state == .invalidRuntime ? .runtimeUnavailable : .incompatibleRuntime, detail: result.detail)
             }
         }
-        return inspected
+        // A connected runtime has already validated native history. Reopening its
+        // JSONL header from every streaming view/status read is unnecessary I/O.
+        return owner.sessionAvailability(session, workspace: root)
     }
     func retainedSessions(allProjects: Bool = false) -> [IndexedAgentSession] {
         if allProjects { return sessionIndex.records() }
@@ -269,7 +286,20 @@ struct AgentWorkspaceState: Codable {
         }
         workspace.schedulePersistence()
     }
+    private func scheduleConversationCheckpoint() {
+        guard !restoring, workspace.persistence.enabled, checkpointTask == nil else { return }
+        // A bounded checkpoint, not a trailing debounce: continuous output must
+        // still reach recovery storage. No session-index work on transcript updates.
+        checkpointTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            defer { self.checkpointTask = nil }
+            do { try self.workspace.persistNow() }
+            catch { self.workspace.report(error) }
+        }
+    }
     func snapshot() -> Data? {
+        flushStreams()
         if let retainedPayload { return retainedPayload }
         return try? JSONEncoder().encode(AgentWorkspaceState(sessions: sessions, conversations: conversations, nextID: nextID, archived: archived, selectedAgentID: projectAgentID))
     }
@@ -302,7 +332,9 @@ struct AgentWorkspaceState: Codable {
                     conversations[key]!.activities[index].status = .cancelled
                 }
                 recoverQueued(key)
-                conversations[key]?.messages = conversations[key]?.messages.filter { !$0.streaming } ?? []
+                var recovered = conversations[key] ?? .init()
+                recovered.finishStreaming()
+                conversations[key] = recovered
             }
         } else {
             projectAgentID = data != nil || workspace.restoredExistingSnapshot ? .pi : selection.globalDefault
@@ -479,6 +511,8 @@ struct AgentWorkspaceState: Codable {
         if let editor = editingApprovals[id], previewDecisions[editor.id] == nil && extensionDecisions[editor.id] == nil { editingApprovals[id] = nil }
     }
     private func invalidateRuntime(_ id: Int) {
+        flushStream(id)
+        retryingErrors[id] = nil; runtimeMessageIDs[id] = nil
         recoverQueued(id)
         backendTokens[id] = nil; actionTokens[id] = UUID()
         for (key, session) in actionSessions where session == id { actionTasks[key]?.cancel() }
@@ -488,9 +522,9 @@ struct AgentWorkspaceState: Codable {
         slashCommands[id] = nil; refreshingSlashCommands[id] = nil
         dropRuntimeDialogs(id)
         realQueue[id] = nil; pendingActions.remove(id); runningSessions.remove(id)
-        for index in conversations[id, default: .init()].messages.indices {
-            conversations[id]?.messages[index].streaming = false
-            if let blocks = conversations[id]?.messages[index].blocks { conversations[id]?.messages[index].blocks = blocks.map { var block = $0; block.streaming = false; return block } }
+        if var conversation = conversations[id] {
+            conversation.finishStreaming()
+            conversations[id] = conversation
         }
     }
     func discoverPreview(root: URL) async throws -> PreviewConfiguration {
@@ -619,18 +653,73 @@ struct AgentWorkspaceState: Codable {
     }
     private var refreshingSlashCommands: [Int:UUID] = [:]
     private var realQueue: [Int: [String]] = [:]
-    private func receive(_ event: AgentEvent, session id: Int) {
+    private func scheduleStream(_ id: Int) {
+        guard streamTasks[id] == nil else { return }
+        streamTasks[id] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else { return }
+            self?.flushStream(id)
+        }
+    }
+    private func flushStream(_ id: Int) {
+        streamTasks.removeValue(forKey: id)?.cancel()
+        guard let buffer = streamBuffers.removeValue(forKey: id), var conversation = conversations[id] else { return }
+        buffer.apply(to: &conversation)
+        conversations[id] = conversation
+    }
+    private func flushStreams() { for id in Array(streamBuffers.keys) { flushStream(id) } }
+    private func receive(_ received: AgentEvent, session id: Int) {
+        var event = received
+        switch received {
+        case .message(var message):
+            if let localID = runtimeMessageIDs[id]?[message.id], localID != message.id {
+                message.id = localID
+                message.blocks = message.blocks?.map { var block = $0; block.id = "\(localID)-block-\(block.index)"; return block }
+            }
+            message.blocks = message.blocks?.map { block in
+                var block = block
+                block.activityID = block.activityID.map { AgentActivity.transcriptID($0, messageID: message.id) }
+                return block
+            }
+            event = .message(message)
+        case .contentDelta(var delta):
+            delta.messageID = runtimeMessageIDs[id]?[delta.messageID] ?? delta.messageID
+            delta.activityID = delta.activityID.map { AgentActivity.transcriptID($0, messageID: delta.messageID) }
+            event = .contentDelta(delta)
+        case .activity(var activity):
+            activity.afterMessageID = activity.afterMessageID.map { runtimeMessageIDs[id]?[$0] ?? $0 }
+            activity.id = AgentActivity.transcriptID(activity.id, messageID: activity.afterMessageID)
+            event = .activity(activity)
+        default: break
+        }
+        if case .contentDelta(let delta) = event {
+            streamBuffers[id, default: .init()].append(delta); scheduleStream(id); return
+        }
+        if case .activity(let activity) = event, activity.status == .running,
+           conversations[id]?.activities.contains(where: { $0.id == activity.id }) == true {
+            streamBuffers[id, default: .init()].append(activity); scheduleStream(id); return
+        }
+        flushStream(id)
         switch event {
-        case .historyBegin: conversations[id]?.messages = []; conversations[id]?.activities = []
+        case .history(let history):
+            let reconciled = history.reconcile(with: conversations[id] ?? .init())
+            runtimeMessageIDs[id] = Dictionary(zip(history.messages, reconciled.messages).map { ($0.id, $1.id) }, uniquingKeysWith: { first, _ in first })
+            conversations[id] = reconciled
+            if history.error != nil { setState(.error, id: id) }
+        case .retrySucceeded:
+            if let retried = retryingErrors.removeValue(forKey: id), conversations[id]?.error == retried {
+                conversations[id]?.error = nil
+                setState(runningSessions.contains(id) ? .running : .idle, id: id)
+            }
+            if conversations[id]?.notice?.hasPrefix("Provider retry ") == true { conversations[id]?.notice = nil }
         case .started: runningSessions.insert(id); conversations[id]?.error = nil; setState(.running, id: id)
         case .settled(let aborted):
             runningSessions.remove(id)
             if conversations[id]?.error == nil { setState(id == selectedSession || aborted ? .idle : .unread, id: id) }
-            for index in conversations[id, default: .init()].messages.indices {
-                conversations[id]?.messages[index].streaming = false
-                if let blocks = conversations[id]?.messages[index].blocks { conversations[id]?.messages[index].blocks = blocks.map { var block = $0; block.streaming = false; return block } }
-            }
-            conversations[id]?.queued = nil; realQueue[id] = []
+            var completed = conversations[id] ?? .init()
+            completed.finishStreaming(); completed.queued = nil
+            conversations[id] = completed
+            realQueue[id] = []
             approvals[id] = approvals[id]?.filter { previewDecisions[$0.id] != nil || extensionDecisions[$0.id] != nil } ?? []
             if editingApprovals[id].map({ previewDecisions[$0.id] == nil }) == true { editingApprovals[id] = nil }
             if approvals[id]?.isEmpty == false || editingApprovals[id] != nil { setState(.approval, id: id) }
@@ -672,7 +761,9 @@ struct AgentWorkspaceState: Codable {
             if let modelID = conversations[id]?.modelID { efforts[id, default: [:]][modelID] = values; conversations[id]?.effort = values.contains(selected ?? "") ? selected : values.first }
         case .sessionDirectory(let url): if let session = sessions.first(where: { $0.id == id }) { historyDirectories[session.agentID] = url }; refreshHistory()
         case .sessionName(let title): if let i = sessions.firstIndex(where: { $0.id == id }) { sessions[i].title = title; sessions[i].recordModified() }
-        case .notice(let text): conversations[id]?.notice = text
+        case .notice(let text):
+            if text.hasPrefix("Provider retry ") { retryingErrors[id] = conversations[id]?.error }
+            conversations[id]?.notice = text
         case .failure(let text): conversations[id]?.error = text; setState(.error, id: id)
         case .runtime(let status):
             if status.phase == .starting || status.phase == .failed || status.phase == .stopped { slashCommands[id]=nil }
@@ -688,17 +779,13 @@ struct AgentWorkspaceState: Codable {
                     conversations[id]?.activities[index].status = .error
                     conversations[id]?.activities[index].output += "\nRuntime stopped: " + status.detail
                 }
-                for index in conversations[id, default: .init()].messages.indices {
-                    conversations[id]?.messages[index].streaming = false
-                    if let blocks = conversations[id]?.messages[index].blocks { conversations[id]?.messages[index].blocks = blocks.map { var block = $0; block.streaming = false; return block } }
-                }
                 invalidateRuntime(id)
                 conversations[id]?.error = status.detail
                 setState(approvals[id]?.isEmpty == false || editingApprovals[id] != nil ? .approval : .error, id: id)
             }
         }
     }
-    private func setState(_ state: AgentSession.State, id: Int) { if let index = sessions.firstIndex(where: { $0.id == id }) { sessions[index].state = state } }
+    private func setState(_ state: AgentSession.State, id: Int) { if let index = sessions.firstIndex(where: { $0.id == id }), sessions[index].state != state { sessions[index].state = state } }
     func refreshHistory() {
         guard let root = workspace.workspace?.url else { return }
         let generation = workspaceGeneration, revision = UUID()
@@ -779,6 +866,8 @@ struct AgentWorkspaceState: Codable {
         return await lifecycle.shutdownAndWait()
     }
     func shutdown() {
+        flushStreams()
+        checkpointTask?.cancel(); checkpointTask = nil
         for id in sessions.map(\.id) { invalidateRuntime(id) }
         lifecycle.invalidateAll()
         slashCommands=[:]; refreshingSlashCommands=[:]
@@ -787,6 +876,7 @@ struct AgentWorkspaceState: Codable {
         for task in actionTasks.values { task.cancel() }; actionTasks = [:]; actionSessions = [:]
         starts = [:]; backends = [:]; leases = [:]
         approvals = [:]; editingApprovals = [:]; realQueue = [:]; pendingActions = []; runningSessions = []
+        checkpointTask?.cancel(); checkpointTask = nil
     }
 }
 

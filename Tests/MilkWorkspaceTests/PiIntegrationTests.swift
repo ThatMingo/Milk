@@ -170,13 +170,11 @@ final class PiIntegrationTests: XCTestCase {
         let restored = PiBackend(runtime: runtime, providerConfiguration: provider); defer { restored.shutdown() }
         var restoredMessages: [AgentMessage] = [], restoredActivities: [AgentActivity] = []
         restored.onEvent = {
-            if case .message(let message) = $0 { restoredMessages.append(message) }
-            if case .activity(let activity) = $0 {
-                if let index = restoredActivities.firstIndex(where: { $0.id == activity.id }) { restoredActivities[index] = activity } else { restoredActivities.append(activity) }
-            }
+            if case .history(let snapshot) = $0 { restoredMessages = snapshot.messages; restoredActivities = snapshot.activities }
         }
         try await restored.start(workspace: root, session: .init(id: 1, title: "Restored", sessionFile: file), configuration: configuration)
         XCTAssertTrue(restoredMessages.contains { $0.role == "assistant" && $0.text.contains("Fixture") })
+        XCTAssertEqual(restoredMessages.map(\.id), liveMessages.map(\.id), "Native resume retains live message identities")
         let restoredTurn = try XCTUnwrap(AgentTranscript.items(messages: restoredMessages, activities: restoredActivities).last?.response)
         XCTAssertEqual(restoredTurn.blocks.map { $0.kind.rawValue + ":" + $0.text + ":" + ($0.activityID ?? "") }, contentSignature)
         XCTAssertEqual(restoredTurn.activityIDs.count, 2)

@@ -5,13 +5,29 @@ import Foundation
 struct PiMessageDecoder {
     private(set) var currentMessageID: String?
     private var partial: AgentMessage?
+    private var identityOccurrences: [String: Int] = [:]
+    private mutating func identity(_ value: JSONValue) -> String {
+        let role = value["role"].string ?? ""
+        // The timestamp is stable from message_start through saved get_messages.
+        // Count collisions rather than assuming milliseconds are unique.
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let canonicalContent = value["timestamp"].number == nil ? String(decoding: (try? encoder.encode(value["content"])) ?? Data(), as: UTF8.self) : ""
+        let key = value["timestamp"].number.map { "\(role):\($0)" }
+            ?? AgentSessionMetadata.stableID([role, canonicalContent]).uuidString
+        let occurrence = identityOccurrences[key, default: 0]
+        identityOccurrences[key] = occurrence + 1
+        return "pi-" + AgentSessionMetadata.stableID([key, String(occurrence)]).uuidString
+    }
     mutating func consume(_ record: JSONValue) -> [AgentEvent] {
         switch record["type"].string {
         case "turn_start": currentMessageID = nil; partial = nil
         case "message_start":
             let value = record["message"]
             guard ["user", "assistant"].contains(value["role"].string ?? "") else { return [] }
-            let message = decode(value, id: UUID().uuidString, streaming: value["role"].string == "assistant")
+            let id = identity(value)
+            var message = decode(value, id: id, streaming: value["role"].string == "assistant")
+            // A timestamp-less partial is not a durable identity until its final content.
+            message.sourceID = value["timestamp"].number == nil ? nil : id
             currentMessageID = message.id; partial = message
             return [.message(message)]
         case "message_update":
@@ -32,7 +48,8 @@ struct PiMessageDecoder {
             return [.contentDelta(delta)]
         case "message_end":
             guard let id = currentMessageID, ["user", "assistant"].contains(record["message"]["role"].string ?? "") else { return [] }
-            let message = decode(record["message"], id: id, streaming: false)
+            var message = decode(record["message"], id: id, streaming: false)
+            message.sourceID = partial?.sourceID
             partial = message
             var events: [AgentEvent] = [.message(message)]
             if record["message"]["stopReason"].string == "error" { events.append(.failure(record["message"]["errorMessage"].string ?? "Provider request failed.")) }
@@ -50,6 +67,13 @@ struct PiMessageDecoder {
     mutating func restore(_ value: JSONValue, id: String) -> AgentMessage {
         let message = decode(value, id: id, streaming: false)
         currentMessageID = id; partial = message; return message
+    }
+    mutating func restore(_ value: JSONValue) -> AgentMessage {
+        let id = identity(value)
+        var message = restore(value, id: id)
+        message.sourceID = id
+        partial = message
+        return message
     }
     private func decode(_ value: JSONValue, id: String, streaming: Bool) -> AgentMessage {
         let role = value["role"].string ?? ""

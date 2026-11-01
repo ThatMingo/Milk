@@ -10,7 +10,7 @@ struct AgentContentBlock: Identifiable, Codable, Equatable {
     var activityID: String?
     var streaming = false
     var redacted = false
-    var visibleThinking: Bool { kind == .thinking && !redacted && (streaming || !text.isEmpty) }
+    var visibleThinking: Bool { kind == .thinking && !redacted && (streaming || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
 }
 struct AgentContentDelta {
     var messageID: String
@@ -62,7 +62,7 @@ struct AgentResponseTurn: Identifiable, Equatable {
             case .text:
                 return !block.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             case .thinking:
-                return !block.redacted && !block.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return block.visibleThinking
             }
         }
     }
@@ -103,6 +103,7 @@ enum AgentTranscript {
     static func items(messages: [AgentMessage], activities: [AgentActivity]) -> [AgentTranscriptItem] {
         var items: [AgentTranscriptItem] = []
         var linked: Set<String> = []
+        let associatedActivities = Dictionary(grouping: activities, by: \.afterMessageID)
         for message in messages {
             if message.role == "user" {
                 items.append(.init(id: message.id, user: message)); continue
@@ -112,7 +113,7 @@ enum AgentTranscript {
             let itemIndex = items.count - 1
             var response = items[itemIndex].response!
             var content = message.blocks ?? (message.text.isEmpty ? [] : [.init(id: message.id + "-text", index: 0, kind: .text, text: message.text)])
-            let associated = activities.filter { $0.afterMessageID == message.id }
+            let associated = associatedActivities[message.id] ?? []
             let declared = Set(content.compactMap(\.activityID))
             // Nested/extension tool events may not have an assistant toolCall content block.
             for activity in associated where !declared.contains(activity.id) {
@@ -134,5 +135,71 @@ enum AgentTranscript {
             }
         }
         return items
+    }
+}
+
+
+extension SessionConversation {
+    mutating func finishStreaming() {
+        for index in messages.indices where messages[index].streaming || messages[index].blocks?.contains(where: \.streaming) == true {
+            messages[index].streaming = false
+            messages[index].blocks = messages[index].blocks?.map { var block = $0; block.streaming = false; return block }
+        }
+    }
+}
+
+/// Retain completed turns and rebuild only the affected turn and following rows.
+/// The cache contains values only; querying it never publishes SwiftUI state.
+final class AgentTranscriptProjection {
+    private var messages: [AgentMessage] = []
+    private var activities: [AgentActivity] = []
+    private var cached: [AgentTranscriptItem] = []
+    private(set) var rebuiltMessageCount = 0
+    func items(messages next: [AgentMessage], activities nextActivities: [AgentActivity]) -> [AgentTranscriptItem] {
+        let metric = ChatRenderMetrics.begin()
+        defer { ChatRenderMetrics.end("transcript.projection", metric) }
+        var changed = 0
+        while changed < min(messages.count, next.count), messages[changed] == next[changed] { changed += 1 }
+        let messagesUnchanged = changed == messages.count && changed == next.count
+        if messagesUnchanged && activities == nextActivities { rebuiltMessageCount = 0; return cached }
+        if !messagesUnchanged && !activities.isEmpty {
+            let oldAssistantIDs = Set(messages.lazy.filter { $0.role == "assistant" }.map(\.id))
+            if activities.contains(where: { activity in
+                activity.afterMessageID.map { !oldAssistantIDs.contains($0) } ?? true
+            }) {
+                // Orphan/Preview activity is appended at the tail by the full reducer.
+                // Rebuild the previous tail as well when a new turn moves that tail.
+                changed = min(changed, messages.lastIndex(where: { $0.role == "user" }) ?? 0)
+            }
+        }
+        if activities != nextActivities {
+            let old = Dictionary(activities.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let new = Dictionary(nextActivities.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let affected = Set(old.keys).union(new.keys).filter { old[$0] != new[$0] }
+            let owners = Set(affected.flatMap { [old[$0]?.afterMessageID, new[$0]?.afterMessageID].compactMap { $0 } })
+            if let owner = next.firstIndex(where: { owners.contains($0.id) }) { changed = min(changed, owner) }
+            // Unlinked activity lives at the tail; rebuild that turn even on removal.
+            if affected.contains(where: { old[$0]?.afterMessageID == nil || new[$0]?.afterMessageID == nil }) {
+                changed = min(changed, max(0, next.count - 1))
+            }
+        }
+        var start = min(changed, max(0, next.count - 1))
+        while start > 0 && next[start].role != "user" { start -= 1 }
+        let prefixIDs = Set(next.prefix(start).map(\.id))
+        let prefix = cached.prefix { prefixIDs.contains($0.id) }
+        let suffix = Array(next.dropFirst(start))
+        let suffixIDs = Set(suffix.map(\.id))
+        let suffixActivities: [AgentActivity]
+        if nextActivities.isEmpty { suffixActivities = [] }
+        else {
+            let assistantIDs = Set(next.lazy.filter { $0.role == "assistant" }.map(\.id))
+            suffixActivities = nextActivities.filter { activity in
+                activity.afterMessageID.map { suffixIDs.contains($0) || !assistantIDs.contains($0) } ?? true
+            }
+        }
+        cached = Array(prefix) + AgentTranscript.items(messages: suffix, activities: suffixActivities)
+        rebuiltMessageCount = suffix.count
+        messages = next; activities = nextActivities
+        return cached
     }
 }

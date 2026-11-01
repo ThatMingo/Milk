@@ -82,6 +82,26 @@ class Handler(BaseHTTPRequestHandler):
                 if 'pause-fixture' in content: name='bash';args={'command':'/bin/sleep 2; /usr/bin/printf "fixture command output"'}
                 else: name='write';args={'path':'agent-created.txt','content':'from fixture\n'}
                 chunk({'tool_calls':[{'index':0,'id':'call-fixture-'+str(time.time_ns()),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]},'tool_calls')
+            elif not is_tool and 'quality-markdown' in content:
+                for index in range(160):
+                    section=(f'## Step {index+1}: request lifecycle\n\n'
+                             'The coordinator keeps **one stable response** while `request` grows. This paragraph describes the implementation tradeoff and includes enough ordinary text to wrap across multiple lines.\n\n'
+                             '- Keep the completed prefix intact.\n- Update only the active response tail.\n\n'
+                             '```swift\nfunc handle(_ input: String) async throws -> String {\n    let value = try await service.respond(to: input)\n    return value\n}\n```\n\n')
+                    for start in range(0,len(section),32):
+                        chunk({'content':section[start:start+32]});time.sleep(.012)
+                chunk({},'stop')
+            elif not is_tool and 'quality-thinking' in content:
+                for index in range(140):
+                    chunk({'reasoning_content':f'Checking request boundary {index+1}. '});time.sleep(.08)
+                for text in ['I checked the request lifecycle.\n\n','The completed response stays in the same logical turn.']:
+                    chunk({'content':text});time.sleep(.3)
+                chunk({},'stop')
+            elif not is_tool and 'chat-scroll-fixture' in content:
+                for index in range(120):
+                    chunk({'content':f'### Stream section {index + 1}\n\nA growing **Markdown** paragraph with `code` and enough text to wrap naturally in the native chat window.\n\n- Inspect the streamed content\n- Keep the reading position stable\n\n'})
+                    time.sleep(.08)
+                chunk({},'stop')
             elif not is_tool and 'slow-fixture' in content:
                 for _ in range(100): chunk({'content':'streaming fixture '});time.sleep(.1)
                 chunk({},'stop')

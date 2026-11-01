@@ -30,6 +30,7 @@ import MilkExtensionHost
     private var previewObservation: AnyCancellable?
     private var workspaceObservation: AnyCancellable?
     private var agentObservation: AnyCancellable?
+    private var composerObservation: AnyCancellable?
     private var gitObservation: AnyCancellable?
     var sessions: [AgentSession] { get { agent.sessions } set { agent.sessions = newValue } }
     var selectedSession: Int { get { agent.selectedSession } set { agent.selectForBrowsing(newValue) } }
@@ -107,8 +108,11 @@ import MilkExtensionHost
         gitObservation=workspace.git.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         workspace.layoutData={ [weak self] in self.flatMap { try? JSONEncoder().encode($0.layout) } }
         agentObservation=agent.objectWillChange.sink { [weak self] _ in
+            if ChatRenderMetrics.enabled { ChatRenderMetrics.shared.record("shell.agent.invalidations", milliseconds: 0) }
             self?.objectWillChange.send()
-            DispatchQueue.main.async { [weak self] in self?.refreshSlashCommands() }
+        }
+        composerObservation = agent.composerChanges.debounce(for: .milliseconds(0), scheduler: RunLoop.main).sink { [weak self] in
+            self?.refreshSlashCommands()
         }
         slashObservation=slashCommands.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         slashCommands.applyInput={ [weak self] text in self?.updateComposerDraft(text) }

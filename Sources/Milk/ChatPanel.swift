@@ -4,6 +4,7 @@ import AppKit
 struct ChatPanel: View {
     @ObservedObject var state: ShellState
     @State private var composerHeight: CGFloat = 96
+    @State private var transcriptStore = ChatTranscriptStore()
     private var references: Bool {
         get { state.slashCommands.popup == .references }
         nonmutating set { if newValue { state.presentComposerPopup(.references) } else if references { state.presentComposerPopup(nil) } }
@@ -26,7 +27,7 @@ struct ChatPanel: View {
             let narrow = geometry.size.width < 560
             VStack(spacing: 0) {
                 ExtensionSlot(point:.chatToolbar)
-                AgentConversationView(state: state, sessionID: state.selectedSession, narrow: narrow)
+                AgentConversationView(state: state, sessionID: state.selectedSession, narrow: narrow, width: geometry.size.width, rendering: transcriptStore.session(state.selectedSession))
                     .id(state.selectedSession)
                 composer(narrow: narrow)
                     .disabled(state.currentSession == nil)
@@ -168,86 +169,112 @@ private struct AgentConversationView: View {
     @ObservedObject var state: ShellState
     let sessionID: Int
     let narrow: Bool
+    let width: CGFloat
+    @ObservedObject var rendering: ChatTranscriptSession
     private var conversation: SessionConversation { state.agent.conversations[sessionID] ?? .init() }
     var body: some View {
         if state.agent.showsNeutralChat {
             MilkCartonOutline()
                 .stroke(MilkTheme.muted.opacity(0.3), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                .frame(width: 96, height: 104)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                .frame(width: 96, height: 104).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false).accessibilityHidden(true)
         } else {
-            transcript
-        }
-    }
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 22) {
-                    if conversation.messages.isEmpty {
-                        SelectableContent(text: state.workspace.workspace == nil ? "Open a project to begin." : (state.currentSession == nil ? "Choose or create a session in the Sessions sidebar." : "Message \(state.agent.currentAgentDisplayName ?? "an agent") to start coding in this project.")).fixedSize(horizontal: false, vertical: true).foregroundStyle(MilkTheme.muted)
-                    }
-                    ForEach(AgentTranscript.items(messages: conversation.messages, activities: conversation.activities)) { item in
-                        if let message = item.user {
-                            HStack {
-                                Spacer(minLength: narrow ? 20 : 100)
-                                SelectableContent(text: message.text).fixedSize(horizontal: false, vertical: true)
-                                    .padding(.horizontal, 14).padding(.vertical, 10).frame(maxWidth: 568, alignment: .leading)
-                                    .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-                            }.id(item.id)
-                        } else if let response = item.response {
-                            AgentResponseTurnView(response: response).id(item.id)
-                        }
-                    }
-                    if !conversation.changes.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Changed files · \(conversation.changes.count)").font(.system(size: 12, weight: .semibold))
-                            ForEach(conversation.changes) { file in
-                                Button {
-                                    if let root = state.workspace.workspace?.url {
-                                        state.workspace.openChangedFile(root.appendingPathComponent(file.path))
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(file.path).lineLimit(1).truncationMode(.middle)
-                                        Spacer(minLength: 8)
-                                        Text(file.kind).foregroundStyle(MilkTheme.muted)
-                                        if let added = file.added { Text("+\(added)").foregroundStyle(MilkTheme.green) }
-                                        if let removed = file.removed { Text("−\(removed)").foregroundStyle(MilkTheme.red) }
-                                    }.font(.system(size: 11.5, design: .monospaced))
-                                }.buttonStyle(MilkButtonStyle())
-                            }
-                        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(MilkTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.line))
-                    }
-                    if let notice = conversation.notice { Text(notice).font(.system(size: 11)).foregroundStyle(MilkTheme.muted).textSelection(.enabled) }
-                    if let error = conversation.error {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(error).foregroundStyle(MilkTheme.red).textSelection(.enabled)
-                            Button("Restart \(state.agent.currentAgentDisplayName ?? "agent")") { state.agent.restart() }.buttonStyle(MilkButtonStyle(bordered: true))
-                        }.font(.system(size: 12)).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(MilkTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.red.opacity(0.4)))
-                    }
-                    Color.clear.frame(height: 1).id("tail")
-                }.scrollTargetLayout().frame(maxWidth: 720).frame(maxWidth: .infinity)
-                    .padding(.horizontal, narrow ? 20 : 32).padding(.top, 28).padding(.bottom, 16)
-            }
-            .scrollPosition(id: Binding(get: { conversation.scrollAnchor }, set: { state.agent.conversations[sessionID]?.scrollAnchor = $0 }), anchor: .top)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 80
-            } action: { _, atBottom in state.agent.conversations[sessionID]?.followsTail = atBottom }
-            .onChange(of: conversation.messages.last) { _, _ in if conversation.followsTail { proxy.scrollTo("tail", anchor: .bottom) } }
-            .onChange(of: conversation.activities.last) { _, _ in if conversation.followsTail { proxy.scrollTo("tail", anchor: .bottom) } }
-            .onAppear { if conversation.followsTail { proxy.scrollTo("tail", anchor: .bottom) } }
+            let empty = state.workspace.workspace == nil ? "Open a project to begin." : (state.currentSession == nil ? "Choose or create a session in the Sessions sidebar." : "Message \(state.agent.currentAgentDisplayName ?? "an agent") to start coding in this project.")
+            NativeChatTranscript(rows: rendering.rows(conversation, empty: empty), session: rendering,
+                                 conversation: conversation, narrow: narrow, sessionID: sessionID, paneWidth: width,
+                                 remember: { offset, anchor, follows, scrollWidth in
+                guard var saved = state.agent.conversations[sessionID] else { return }
+                guard saved.scrollOffset != offset || saved.scrollAnchor != anchor?.id || saved.followsTail != follows || saved.scrollWidth != scrollWidth else { return }
+                saved.scrollOffset = offset; saved.followsTail = follows; saved.scrollWidth = scrollWidth
+                if let anchor { saved.scrollAnchor = anchor.id; saved.scrollAnchorOwner = anchor.ownerID }
+                state.agent.conversations[sessionID] = saved
+            }, content: { row in AnyView(ChatTranscriptRowView(row: row, state: state, session: rendering, narrow: narrow)) })
         }
     }
 }
 
-struct AgentResponseTurnView: View {
+private struct ChatTranscriptRowView: View {
+    let row: ChatTranscriptRow
+    let state: ShellState
+    let session: ChatTranscriptSession
+    let narrow: Bool
+    var body: some View {
+        Group {
+            switch row.content {
+            case .user(let message): AgentUserMessageView(message: message, narrow: narrow)
+            case .header(let turn): AgentResponseHeader(response: turn)
+            case .markdown(let block): AgentMarkdownPiece(block: block).font(.system(size: 14)).textSelection(.enabled)
+            case .thinking(let block, let label, let expanded, let active):
+                AgentThinkingContent(block: block, label: label, expanded: expanded, active: active) { session.choices[row.owner] = !expanded }
+            case .activity(let activities, let expanded, let outputs):
+                AgentActivityGroupContent(activities: activities, expanded: expanded, outputs: outputs,
+                    toggle: { session.choices[row.owner + "/" + row.id] = !expanded },
+                    toggleOutput: { id in session.choices[row.owner + "/output/" + id] = !outputs.contains(id) })
+            case .changes(let changes):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Changed files · \(changes.count)").font(.system(size: 12, weight: .semibold))
+                    ForEach(changes) { file in
+                        Button {
+                            if let root = state.workspace.workspace?.url { state.workspace.openChangedFile(root.appendingPathComponent(file.path)) }
+                        } label: {
+                            HStack {
+                                Text(file.path).lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                Text(file.kind).foregroundStyle(MilkTheme.muted)
+                                if let added = file.added { Text("+\(added)").foregroundStyle(MilkTheme.green) }
+                                if let removed = file.removed { Text("−\(removed)").foregroundStyle(MilkTheme.red) }
+                            }.font(.system(size: 11.5, design: .monospaced))
+                        }.buttonStyle(MilkButtonStyle())
+                    }
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(MilkTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.line))
+            case .empty(let text): SelectableContent(text: text).fixedSize(horizontal: false, vertical: true).foregroundStyle(MilkTheme.muted)
+            case .notice(let text): Text(text).font(.system(size: 11)).foregroundStyle(MilkTheme.muted).textSelection(.enabled)
+            case .error(let text):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(text).foregroundStyle(MilkTheme.red).textSelection(.enabled)
+                    Button("Restart \(state.agent.currentAgentDisplayName ?? "agent")") { state.agent.restart() }.buttonStyle(MilkButtonStyle(bordered: true))
+                }.font(.system(size: 12)).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(MilkTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.red.opacity(0.4)))
+            }
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct AgentUserMessageView: View, Equatable {
+    let message: AgentMessage
+    let narrow: Bool
+    var body: some View {
+        HStack {
+            Spacer(minLength: narrow ? 20 : 100)
+            SelectableContent(text: message.text).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14).padding(.vertical, 10).frame(maxWidth: 568, alignment: .leading)
+                .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+}
+
+struct AgentResponseHeader: View {
     @Environment(\.milkExtensionActionContext) private var extensionContext
     let response: AgentResponseTurn
+    var body: some View {
+HStack(spacing: 8) {
+                Image(systemName: "drop").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 22, height: 22).background(MilkTheme.accent, in: RoundedRectangle(cornerRadius: 6))
+                Text("Pi").fontWeight(.semibold)
+                ExtensionSlot(point:.chatMessageActions)
+                    .environment(\.milkExtensionActionContext,.init(workspaceURL:extensionContext.workspaceURL,text:response.blocks.filter { $0.kind == .text }.map(\.text).joined(separator:"\n")))
+                if response.streaming && !response.thinkingActive { ProgressView().controlSize(.mini) }
+            }.accessibilityIdentifier("milk.pi.turn.header")
+    }
+}
+
+struct AgentResponseTurnView: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.response == rhs.response && lhs.readingOrder == rhs.readingOrder }
+    @Environment(\.milkExtensionActionContext) private var extensionContext
+    let response: AgentResponseTurn
+    var readingOrder: [Int] = []
     @State private var thinkingExpanded = false
     private var firstThinkingID: String? { response.blocks.first(where: \.visibleThinking)?.id }
     private var visibleBlocks: [AgentContentBlock] {
@@ -261,83 +288,106 @@ struct AgentResponseTurnView: View {
         }
     }
     var body: some View {
+        let _ = ChatRenderMetrics.enabled ? ChatRenderMetrics.shared.record("response.body", milliseconds: 0) : ()
         let blocks = visibleBlocks
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "drop").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 22, height: 22).background(MilkTheme.accent, in: RoundedRectangle(cornerRadius: 6))
-                Text("Pi").fontWeight(.semibold)
-                ExtensionSlot(point:.chatMessageActions)
-                    .environment(\.milkExtensionActionContext,.init(workspaceURL:extensionContext.workspaceURL,text:response.blocks.filter { $0.kind == .text }.map(\.text).joined(separator:"\n")))
-                if response.streaming && !response.thinkingActive { ProgressView().controlSize(.mini) }
-            }.accessibilityIdentifier("milk.pi.turn.header")
+            AgentResponseHeader(response: response)
             ForEach(response.presentationGroups) { group in
                 if group.isActivity {
                     AgentActivityGroupView(activities: group.blocks.compactMap { block in
                         response.activities.first { $0.id == block.activityID }
-                    })
+                    }).chatReadingTarget(group.id, order: readingOrder + [response.blocks.firstIndex(where: { $0.id == group.blocks[0].id }) ?? 0])
                 } else {
                     content(group.blocks.filter { block in blocks.contains { $0.id == block.id } })
                 }
             }
-        }.onChange(of: response.thinkingActive) { _, active in if !active { thinkingExpanded = false } }
+        }
     }
     private func content(_ blocks: [AgentContentBlock]) -> some View {
         ForEach(blocks) { block in render(block) }
     }
     @ViewBuilder private func render(_ block: AgentContentBlock) -> some View {
         switch block.kind {
-        case .text: AgentMarkdown(text: block.text)
+        case .text: AgentMarkdown(text: block.text, readingID: block.id, readingOrder: readingOrder + [response.blocks.firstIndex(where: { $0.id == block.id }) ?? 0]).equatable()
         case .thinking:
+            AgentThinkingContent(block: block, label: block.id == firstThinkingID, expanded: thinkingExpanded, active: response.thinkingActive) { thinkingExpanded.toggle() }
+                .chatReadingTarget(block.id, order: readingOrder + [response.blocks.firstIndex(where: { $0.id == block.id }) ?? 0])
+        case .activity: EmptyView()
+        }
+    }
+}
+struct AgentThinkingContent: View {
+    let block: AgentContentBlock
+    let label: Bool
+    let expanded: Bool
+    let active: Bool
+    let toggle: () -> Void
+    var body: some View {
             VStack(alignment: .leading, spacing: 8) {
-                if block.id == firstThinkingID {
-                    Button { thinkingExpanded.toggle() } label: {
+                if label {
+                    Button(action: toggle) {
                         HStack(spacing: 7) {
-                            Image(systemName: thinkingExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9))
+                            Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 9))
                             Text("Thinking").font(.system(size: 12, weight: .medium))
-                            if response.thinkingActive { ProgressView().controlSize(.mini) }
+                            if active { ProgressView().controlSize(.mini).accessibilityHidden(true) }
                         }.foregroundStyle(MilkTheme.muted).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("milk.pi.turn.thinking")
+                    }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel("Thinking")
+                        .accessibilityValue("\(expanded ? "Expanded" : "Collapsed"), \(active ? "Running" : "Complete")")
+                        .accessibilityIdentifier("milk.pi.turn.thinking")
                 }
-                if thinkingExpanded && !block.text.isEmpty {
+                if expanded && !block.text.isEmpty {
                     SelectableContent(text: block.text, size: 12).fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(MilkTheme.muted).padding(.leading, 12)
                         .overlay(alignment: .leading) { MilkTheme.line.frame(width: 2) }
                 }
             }
-        case .activity: EmptyView()
-        }
     }
 }
+
 private struct AgentActivityGroupView: View {
     let activities: [AgentActivity]
     @State private var expandedChoice: Bool?
+    @State private var outputs: Set<String> = []
     private var running: Bool { activities.contains { $0.status == .running || $0.status == .approval } }
     private var expanded: Bool { expandedChoice ?? running }
     var body: some View {
+        AgentActivityGroupContent(activities: activities, expanded: expanded, outputs: outputs, toggle: { expandedChoice = !expanded }, toggleOutput: { id in if !outputs.insert(id).inserted { outputs.remove(id) } })
+    }
+}
+struct AgentActivityGroupContent: View {
+    let activities: [AgentActivity]
+    let expanded: Bool
+    let outputs: Set<String>
+    let toggle: () -> Void
+    let toggleOutput: (String) -> Void
+    private var running: Bool { activities.contains { $0.status == .running || $0.status == .approval } }
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expandedChoice = !expanded } label: {
+            Button(action: toggle) {
                 HStack(spacing: 8) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 9))
                     Text("Activity").fontWeight(.semibold)
                     Text("· \(activities.count) \(activities.count == 1 ? "step" : "steps")").foregroundStyle(MilkTheme.muted)
                     Spacer()
-                    if running { ProgressView().controlSize(.mini) }
+                    if running { ProgressView().controlSize(.mini).accessibilityHidden(true) }
                 }.padding(.horizontal, 12).frame(height: 34).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityIdentifier("milk.pi.turn.activity")
-            if expanded { ForEach(activities) { AgentActivityRow(activity: $0) } }
+            }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel("Activity")
+                .accessibilityValue("\(activities.count) steps, \(expanded ? "Expanded" : "Collapsed"), \(running ? "Running" : "Complete")")
+                .accessibilityIdentifier("milk.pi.turn.activity")
+            if expanded { ForEach(activities) { activity in AgentActivityRowContent(activity: activity, output: outputs.contains(activity.id), toggle: { toggleOutput(activity.id) }) } }
         }.background(MilkTheme.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.line))
-            .onChange(of: running) { _, active in if !active { expandedChoice = nil } }
+
     }
 }
 
-private struct AgentActivityRow: View {
+struct AgentActivityRowContent: View {
     let activity: AgentActivity
-    @State private var output = false
+    let output: Bool
+    let toggle: () -> Void
     var body: some View {
         VStack(spacing: 0) {
-            Button { output.toggle() } label: {
+            Button(action: toggle) {
                 HStack(spacing: 10) {
                     Image(systemName: activity.status == .running ? "circle.dotted" : activity.status == .error ? "exclamationmark.circle" : activity.status == .approval ? "hand.raised" : activity.status == .cancelled ? "stop.circle" : "checkmark")
                         .foregroundStyle(activity.status == .error ? MilkTheme.red : activity.status == .approval ? MilkTheme.amber : activity.status == .running ? MilkTheme.accent : MilkTheme.green).frame(width: 12)
@@ -354,9 +404,11 @@ private struct AgentActivityRow: View {
     }
 }
 
-enum AgentMarkdownBlock: Equatable {
+enum AgentMarkdownBlock: Equatable, Hashable {
     case paragraph(String), heading(Int, String), code(String), quote(String), list(String, String), rule
     static func parse(_ text: String) -> [Self] {
+        let metric = ChatRenderMetrics.begin()
+        defer { ChatRenderMetrics.end("markdown.parse", metric, units: text.utf8.count) }
         var result: [Self] = [], paragraph: [String] = [], code: [String]? = nil
         func flush() { if !paragraph.isEmpty { result.append(.paragraph(paragraph.joined(separator: "\n"))); paragraph = [] } }
         for line in text.components(separatedBy: "\n") {
@@ -383,26 +435,35 @@ enum AgentMarkdownBlock: Equatable {
         return result
     }
 }
-struct AgentMarkdown: View {
+struct AgentMarkdown: View, Equatable {
     let text: String
+    var readingID = "markdown"
+    var readingOrder: [Int] = []
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(AgentMarkdownBlock.parse(text).enumerated()), id: \.offset) { index, block in
+                AgentMarkdownPiece(block: block).equatable()
+                    .chatReadingTarget("\(readingID)-markdown-\(index)", order: readingOrder + [index])
+            }
+        }.scrollTargetLayout().font(.system(size: 14)).textSelection(.enabled)
+    }
+}
+struct AgentMarkdownPiece: View, Equatable {
+    let block: AgentMarkdownBlock
     private func inline(_ value: String) -> Text {
         Text((try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value))
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(AgentMarkdownBlock.parse(text).enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .paragraph(let value): inline(value).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading)
-                case .heading(let level, let value): inline(value).font(.system(size: CGFloat(max(14, 25 - level * 2)), weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
-                case .code(let value):
-                    ScrollView(.horizontal) { Text(value).font(.system(size: 12, design: .monospaced)).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
-                        .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 8))
-                case .quote(let value): inline(value).foregroundStyle(MilkTheme.muted).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).overlay(alignment: .leading) { MilkTheme.line.frame(width: 2) }
-                case .list(let marker, let value): HStack(alignment: .top, spacing: 8) { Text(marker); inline(value).frame(maxWidth: .infinity, alignment: .leading) }
-                case .rule: Hairline()
-                }
-            }
-        }.font(.system(size: 14)).textSelection(.enabled)
+        switch block {
+        case .paragraph(let value): inline(value).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading)
+        case .heading(let level, let value): inline(value).font(.system(size: CGFloat(max(14, 25 - level * 2)), weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
+        case .code(let value):
+            ScrollView(.horizontal) { Text(value).font(.system(size: 12, design: .monospaced)).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+                .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+        case .quote(let value): inline(value).foregroundStyle(MilkTheme.muted).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).overlay(alignment: .leading) { MilkTheme.line.frame(width: 2) }
+        case .list(let marker, let value): HStack(alignment: .top, spacing: 8) { Text(marker); inline(value).frame(maxWidth: .infinity, alignment: .leading) }
+        case .rule: Hairline()
+        }
     }
 }
 
@@ -510,5 +571,23 @@ struct ComposerInput: NSViewRepresentable {
         let used = max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY)
         let line = layout.defaultLineHeight(for: font)
         return min(maximumHeight, max(line, ceil(used)) + 24)
+    }
+}
+
+/// Developer-only appearance reference: the previous eager layout, never used in
+/// the live transcript. Native verification overlays it for screenshot comparison.
+@MainActor enum ChatAppearanceReference {
+    static func view(_ conversation: SessionConversation, narrow: Bool) -> AnyView {
+        let items = AgentTranscript.items(messages: conversation.messages, activities: conversation.activities)
+        return AnyView(ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                ForEach(items) { item in
+                    if let user = item.user { AgentUserMessageView(message: user, narrow: narrow) }
+                    else if let response = item.response { AgentResponseTurnView(response: response) }
+                }
+                Color.clear.frame(height: 17)
+            }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+                .padding(.horizontal, narrow ? 20 : 32).padding(.top, 28)
+        }.font(.system(size: 13)).foregroundStyle(MilkTheme.ink).background(MilkTheme.canvas))
     }
 }

@@ -85,7 +85,7 @@ final class PiProviderRoutingTests: XCTestCase {
         let resumed = adapter.makeBackend(context: .init(permission: .approval)); defer { resumed.shutdown() }
         var restored: [AgentMessage] = [], sessionID: String?
         resumed.onEvent = { event in
-            if case .message(let message) = event { restored.append(message) }
+            if case .history(let snapshot) = event { restored = snapshot.messages }
             if case .state(let state) = event { sessionID = state.sessionID }
         }
         var retained = session; retained.sessionFile = sessionFile

@@ -138,6 +138,7 @@ final class PiProviderConsistencyTests: XCTestCase {
                 case .notice(let value): markers += value
                 case .settled: settled = true
                 case .failure(let value): failures.append(value)
+                case .history(let snapshot): history = snapshot.messages
                 case .message(let value): history.append(value)
                 default: break
                 }

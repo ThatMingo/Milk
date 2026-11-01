@@ -111,8 +111,14 @@ import UniformTypeIdentifiers
             try PiCompatibilityPolicy.validate("get_messages", reply: history, version: version)
             let messages = history["messages"].array
             try checkActivation(token)
-            onEvent?(.historyBegin)
-            for (index, message) in messages.enumerated() { restore(message, index: index) }
+            // No visible clear or item-by-item replay. Native content becomes visible
+            // only after the complete, ordered snapshot has been reconstructed.
+            let reconstructionMetric = ChatRenderMetrics.begin()
+            messageDecoder = PiMessageDecoder(); activities = [:]
+            var restored = AgentHistory()
+            for (index, message) in messages.enumerated() { restore(message, index: index, into: &restored) }
+            ChatRenderMetrics.end("history.reconstruct", reconstructionMetric, units: messages.count)
+            onEvent?(.history(restored))
             compatibility = PiCompatibilityPolicy.verified(version: location.version)
             onEvent?(.runtime(runtimeStatus(.ready, detail: "Pi ready")))
         } catch {
@@ -267,24 +273,27 @@ import UniformTypeIdentifiers
             return fields
         }.value
     }
-    private func restore(_ message: JSONValue, index: Int) {
+    private func restore(_ message: JSONValue, index: Int, into history: inout AgentHistory) {
         let role = message["role"].string ?? ""
         if role == "user" || role == "assistant" {
-            let decoded = messageDecoder.restore(message, id: "history-\(index)")
-            onEvent?(.message(decoded))
+            let decoded = messageDecoder.restore(message)
+            history.messages.append(decoded)
             if role == "assistant" {
+                history.error = message["stopReason"].string == "error" ? message["errorMessage"].string ?? "Provider request failed." : nil
                 for block in message["content"].array where block["type"].string == "toolCall" {
                     guard let id = block["id"].string else { continue }
                     var activity = makeActivity(id: id, name: block["name"].string ?? "Tool", args: block["arguments"], messageID: decoded.id, restored: true)
                     activity.status = .cancelled // Replaced by the actual saved result when present.
-                    activities[id] = activity; onEvent?(.activity(activity))
+                    activities[id] = activity; history.activities.append(activity)
                 }
             }
         } else if role == "toolResult" {
             let id = message["toolCallId"].string ?? "history-tool-\(index)"
             var activity = activities[id] ?? .init(id: id, kind: message["toolName"].string ?? "Tool", detail: "Restored activity", afterMessageID: messageDecoder.currentMessageID)
             activity.output = message["content"].text; activity.status = message["isError"].bool ? .error : .completed
-            activities[id] = activity; onEvent?(.activity(activity))
+            activities[id] = activity
+            if let position = history.activities.firstIndex(where: { $0.id == id && $0.afterMessageID == activity.afterMessageID }) { history.activities[position] = activity }
+            else { history.activities.append(activity) }
         }
     }
     private func makeActivity(id: String, name: String, args: JSONValue, messageID: String?, restored: Bool = false) -> AgentActivity {
@@ -317,7 +326,10 @@ import UniformTypeIdentifiers
                         let after = try await Task.detached(priority: .utility) { try AgentFileSnapshot.capture(root: workspace) }.value
                         guard !Task.isCancelled, let self, self.runGeneration == token else { return }
                         self.onEvent?(.changes(before.changes(to: after)))
-                    } catch { self?.onEvent?(.notice("File change summary failed: \(error.localizedDescription)")) }
+                    } catch {
+                        guard !Task.isCancelled, let self, self.runGeneration == token else { return }
+                        self.onEvent?(.notice("File change summary failed: \(error.localizedDescription)"))
+                    }
                 }
             }
             let token = runGeneration
@@ -352,8 +364,13 @@ import UniformTypeIdentifiers
             let text="\(record["extensionPath"].string ?? "Pi extension"): \(record["error"].string ?? "Unknown extension error")"
             onEvent?(.extensionProblem(text)); onEvent?(.notice(text))
         case "auto_retry_start": onEvent?(.notice("Provider retry \(Int(record["attempt"].number ?? 0)): \(record["errorMessage"].string ?? "")"))
-        case "auto_retry_end": if !record["success"].bool { onEvent?(.failure(record["finalError"].string ?? "Provider retries failed.")) }
+        case "auto_retry_end":
+            if record["success"].bool { onEvent?(.retrySucceeded) }
+            else { onEvent?(.failure(record["finalError"].string ?? "Provider retries failed.")) }
         case "compaction_start": onEvent?(.notice("Pi is compacting the session context."))
+        case "compaction_end":
+            if let error = record["errorMessage"].string { onEvent?(.failure(error)) }
+            onEvent?(.notice(record["aborted"].bool ? "Pi context compaction cancelled." : record["errorMessage"].string == nil ? "Pi context compacted." : "Pi context compaction failed."))
         default: break // Version-compatible unknown events are ignored, malformed framing is fatal.
         }
     }
