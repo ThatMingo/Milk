@@ -1,6 +1,6 @@
 # ExecPlan — Milk Sandbox / Runtime Hardening
 
-**Status:** Phases 1–5 complete; Phase 6 in progress; Phase 7 not started
+**Status:** COMPLETE — Phases 1–7 technical acceptance passed under the approved normal login-Keychain/private-distribution policy. Optional distribution/coverage work remains explicitly unclaimed.
 **Target design:** `docs/design-docs/SANDBOX_ARCHITECTURE.md`  
 **Initial baseline:** `security/api-keychain` at `c00305f72821c04ae1f76cb0327d3a465bc7b7a5`
 
@@ -13,7 +13,7 @@ Implement the approved Milk Sandbox architecture without regressing:
 - Pi chat/RPC behavior;
 - managed vs Existing Pi ownership;
 - Local provider/oMLX behavior;
-- Data Protection Keychain storage;
+- ordinary macOS login/file-based Keychain storage (approved 2026-11-02 revision);
 - Git;
 - Preview;
 - Terminal;
@@ -229,11 +229,12 @@ Future agents retain their authentication/OAuth; no universal broker is introduc
 
 ## Revised implementation phases and dependencies
 
-Phases 1–4 are complete. The user separately authorized Phase 5 Git/host-effect
-implementation; its current results are recorded below. Phase 6 and broad
-rollout are not authorized. The table
-below retains the approved dependencies. Phase 3 ON provides real enforcement
-for its covered paths without claiming complete later-purpose security acceptance.
+Phases 1–6 are complete within their authorized scopes; measured results and
+limitations are recorded below. The user authorized Phase 6 purpose closure and
+default-ON rollout, preserving existing explicit OFF choices. Phase 7 acceptance
+and release work requires separate authorization and has not started. The table
+below retains the approved dependencies; earlier phase descriptions are scoped
+deliverables, not claims that their historical partial-coverage status is current.
 
 | Phase | Major files/components | Deliverables and exit gate |
 | --- | --- | --- |
@@ -265,71 +266,80 @@ documentation-only change; no sandbox runtime properties have been verified.
 
 ## Security invariants to test continuously
 
-- [ ] Local key scoped to the active Pi credential-trusted runtime domain; its child/extension exposure is documented.
-- [ ] No Local key inherited in Milk-owned executor/extension-worker environments or their descendants.
-- [ ] No automatic cross-profile access.
-- [ ] No writable symlink escape.
-- [ ] No unrestricted fallback when Seatbelt/profile construction fails.
-- [ ] No runtime grant reuse across operation/session/runtime identity; invalidation precedes future admission.
-- [ ] Ordinary descendants cleaned with bounded TERM/KILL/reap; no unrelated-process kills.
-- [ ] Deliberate detached-survivor inherited-access limitation disclosed; no authoritative revocation claim.
+- [x] Local key scoped to the active Pi credential-trusted runtime domain; its child/extension exposure is documented.
+- [x] No Local key inherited in Milk-owned executor/extension-worker environments or their descendants.
+- [x] No automatic cross-profile access.
+- [x] No writable symlink escape.
+- [x] No unrestricted fallback when Seatbelt/profile construction fails.
+- [x] No runtime grant reuse across operation/session/runtime identity; invalidation precedes future admission.
+- [x] Ordinary descendants cleaned with bounded TERM/KILL/reap; no unrelated-process kills.
+- [x] Deliberate detached-survivor inherited-access limitation disclosed; no authoritative revocation claim.
 - [x] Persistent development jobs explicitly owned and stopped with their Preview/session/project lifecycle.
 - [x] No native extension agent-triggered bypass.
 - [x] No generic Milk privileged filesystem bridge.
 - [x] `.git` arbitrary mutation blocked while Git workflows still function.
-- [ ] Sandbox OFF is explicit and does not pretend protections are active.
+- [x] Sandbox OFF is explicit and does not pretend protections are active.
+
+The checks below refer to measured finite tests within the documented snapshot,
+credential-domain, Git and detached-survivor limits. They are not universal or atomic
+security certification. Phase 7 evidence and external gates are in
+`docs/SANDBOX_ACCEPTANCE.md`.
 
 ## Acceptance matrix
 
 ### Sandbox policy
 
-- [ ] Global toggle defaults ON.
-- [ ] Ask and Autonomous remain separate.
-- [ ] Agent Project Access defaults R/W.
-- [ ] Project R/O blocks writes without prompting.
-- [ ] Global/project allowed-folder rules work.
-- [ ] Protected Locations are editable.
-- [ ] Restore defaults preserves custom entries.
+- [x] Global toggle defaults ON.
+- [x] Ask and Autonomous remain separate.
+- [x] Agent Project Access defaults R/W.
+- [x] Project R/O blocks writes without prompting.
+- [x] Global/project allowed-folder rules work.
+- [x] Protected Locations are editable.
+- [x] Restore defaults preserves custom entries.
 
 ### Runtime grants
 
-- [ ] Allow Once.
-- [ ] Allow for Session.
-- [ ] runtime restart clears.
-- [ ] Milk restart clears.
-- [ ] saved chat reopen does not restore.
-- [ ] Autonomous countdown.
-- [ ] Ask waits indefinitely.
-- [ ] protected paths do not offer session grant.
-- [ ] duplicate auto-denied requests are suppressed temporarily.
+- [x] Allow Once.
+- [x] Allow for Session.
+- [x] runtime restart clears.
+- [x] Milk restart clears.
+- [x] saved chat reopen does not restore.
+- [x] Autonomous countdown.
+- [x] Ask waits indefinitely.
+- [x] protected paths do not offer session grant.
+- [x] duplicate auto-denied requests are suppressed temporarily.
 
 ### Profiles
 
-- [ ] managed active profile isolated.
-- [ ] Existing active profile isolated.
-- [ ] managed does not auto-read Existing.
-- [ ] Existing does not auto-read managed.
-- [ ] Existing model tools have no blanket profile access.
+- [x] managed active profile isolated.
+- [x] Existing active profile isolated.
+- [x] managed does not auto-read Existing.
+- [x] Existing does not auto-read managed.
+- [x] Existing model tools have no blanket profile access.
 
 ### Credentials
 
-- [ ] Keychain still persistent source.
-- [ ] active Pi domain injection/provider parity retained; child/MCP/extension exposure documented.
-- [ ] Pi-owned child/MCP inheritance retained; no inherited Local key in Milk-owned worker/executor environments or their descendants.
-- [ ] oMLX discovery works.
-- [ ] chat/inference works.
-- [ ] replacement/revocation works.
-- [ ] profile/endpoint scoping preserved.
+- [x] Keychain remains the only persistent credential-store implementation; selector/no-fallback tests pass.
+- [x] Provisioned Data Protection gate retired by explicit user decision; actual ordinary login-Keychain persistence/recovery measured without provisioning.
+- [x] active Pi domain injection/provider parity retained; child/MCP/extension exposure documented.
+- [x] Pi-owned child/MCP inheritance retained; no inherited Local key in Milk-owned worker/executor environments or their descendants.
+- [x] Synthetic localhost OpenAI-compatible model discovery works through current Pi.
+- [ ] Optional live oMLX coverage NOT RUN: no usable dedicated authorized inference credential established; not a technical-completion gate.
+- [x] Actual Pi chat/inference against synthetic localhost providers works.
+- [ ] Optional live Local/hosted-account coverage NOT RUN; ordinary Keychain app-restart persistence is independently measured, not inferred from fixtures.
+- [x] Synthetic credential replacement/server revocation/no-auth/stale-auth precedence works; live service rotation is unclaimed.
+- [x] profile/endpoint scoping preserved.
 
 ### Tool/process containment
 
-- [ ] shell.
-- [ ] Python.
-- [ ] Node/npm.
-- [ ] Swift/Xcode build flow.
-- [ ] ordinary descendants constrained; escalated Git/hooks/helpers tested as the explicit exception.
-- [ ] cache/build redirection works where configured.
-- [ ] symlink escape blocked.
+- [x] shell.
+- [x] Python.
+- [x] Node/npm.
+- [x] Swift compilation/xcrun and Xcode version output.
+- [x] Real Xcode target/build phase with explicit TemporaryItems Once grant; private-only attempt fails closed, unrelated outside writes denied, Once expires (Phase 7 evidence).
+- [x] ordinary descendants constrained; escalated Git/hooks/helpers tested as the explicit exception.
+- [x] cache/build redirection works where configured.
+- [x] symlink escape blocked.
 
 ### Git
 
@@ -339,7 +349,7 @@ documentation-only change; no sandbox runtime properties have been verified.
 - [x] checkout/switch.
 - [x] merge/reset where existing workflow supports them.
 - [x] arbitrary `.git` file mutation blocked.
-- [ ] `.git` deletion blocked in normal execution.
+- [x] `.git` deletion blocked in normal execution.
 - [x] controlled escalation preserves Git hooks/helpers without widening arbitrary commands.
 
 ### Native extensions
@@ -351,12 +361,15 @@ documentation-only change; no sandbox runtime properties have been verified.
 
 ### Purpose profiles
 
-- [ ] conversation.
-- [ ] Preview inspection.
-- [ ] version probe.
-- [ ] compatibility probe.
-- [ ] package/install transaction.
-- [ ] utility command paths currently present in code.
+Production coverage and focused executable evidence are complete (Phase 6 record
+below); this does not mark the broader Phase 7 acceptance matrix complete.
+
+- [x] conversation.
+- [x] Preview inspection.
+- [x] version probe.
+- [x] compatibility probe.
+- [x] package/install transaction.
+- [x] utility command paths currently present in code.
 
 ## Progress
 
@@ -374,8 +387,10 @@ documentation-only change; no sandbox runtime properties have been verified.
 - [x] Phase 3 separately authorized and completed within its launcher/executor/approval scope.
 - [x] Phase 3 exit checks (record below).
 - [x] Phase 4 covered environment construction and provider parity completed (record below).
-- [ ] Phases 5–7 (not started).
-- [ ] Remaining target security/acceptance matrix beyond the Phase 3/4 evidence awaits Phases 5–7.
+- [x] Phase 5 Git and agent-triggered host effects completed (record below).
+- [x] Phase 6 all-purpose containment and default-ON gates completed (record below).
+- [x] Phase 7 technical acceptance complete after the approved normal login-Keychain revision; optional live/distribution/coverage items remain unclaimed.
+- [ ] Optional distribution/live/additional-host/manual coverage remains unperformed; the approved revision retires these as mandatory technical-completion gates.
 
 ## Discoveries and decisions
 
@@ -1804,8 +1819,445 @@ snapshots/watchers to auxiliary processes and reconnect existing runtime owners 
 old admission closes/drains. Keep a complete inventory and evidence below.
 
 - [x] Read request/current code and identify remaining launches.
-- [ ] Executable/interpreter closure and purpose plans.
-- [ ] Version/compatibility/package/install wiring and private environment/storage.
-- [ ] Policy lifecycle and default-ON/OFF UI/reference reconciliation.
-- [ ] Focused tests/full regressions/preserved Phase 1/package/helper/build/signatures.
-- [ ] Final inventory/evidence, limits and Phase 6 exit decision.
+- [x] Executable/interpreter closure and purpose plans.
+- [x] Version/compatibility/package/install wiring and private environment/storage.
+- [x] Policy lifecycle and default-ON/OFF UI/reference reconciliation.
+- [x] Focused tests/full regressions/preserved Phase 1/package/helper/build/signatures.
+- [x] Final inventory/evidence, limits and Phase 6 exit decision.
+
+### Final launch inventory and authority mapping
+
+The detailed current contract is `docs/SANDBOX_PURPOSES.md`. This inventory covers
+production agent launches; it distinguishes trusted host features and explicit
+developer diagnostics rather than treating them as agent fallbacks.
+
+| Launch boundary | Profile / filesystem authority | Environment, storage and ownership |
+| --- | --- | --- |
+| Conversation: `PiBackend` / `PiLaunchResolver` / `PiRPCClient` | Current project/profile policy plus validated selected executable, interpreter, code/module graph and named support inputs; code is read-only. | Existing approved Pi credential domain; selected HOME/profile, private activation TMP/cache; owned runtime lease. |
+| Preview inspection: discovery `PiBackend` | Project Read Only, narrow runtime inputs, private active profile; selected source profile remains inactive. | ON private HOME/profile/TMP; approved Local injection remains Pi-owned. Auxiliary lease drains before deleting state. OFF keeps the explicit compatibility behavior. |
+| Pre-RPC version: `PiRuntimeService` / `PiUtilityProcess` | Required version purpose plan even without task-local context; narrow validated dependencies, no ordinary project/profile grant. | Independently sanitized, key-free private HOME/TMP/cache/profile and writable scratch workspace; bounded output/deadline; cleanup awaited. |
+| Compatibility: `PiCompatibilityProbe` | Explicit profiled RPC; selected closure, Milk integration/bridge, only discovery checks; original profile inactive. | Private HOME/TMP/cache/profile/workspace; no provider credential, user extension/MCP/skills/session loading or model prompt. Lifecycle/cancel/settings shutdown awaited. |
+| Install/update/repair candidate: `PiInstallationManager` | Artifact platform/hash/notices/archive/inventory validation before candidate version/compatibility execution; candidate code read-only, inventory rechecked afterward. | Installation/compatibility purpose plans; private probe state, no provider key. Staging and cleanup remain owned through recovery. |
+| Package install/remove: `ExtensionService` / `PiUtilityProcess` | Actual selected runtime; explicit local source read-only, exact selected target profile writable subject to stronger policy; purpose ceilings exclude unrelated grants. | Separate key-free environment/private HOME/TMP/cache; only PI_CODING_AGENT_DIR selects the persistent target. Fresh owned transaction, awaited cleanup. |
+| Stock/nested tools and user_bash: `PiSandboxExecution` | Existing sibling executor/per-operation policy and grants; selected code/resources read-only. | Separate sanitized operation HOME/profile/TMP, no Local key; private bridge capabilities and owned process cleanup. |
+| Background/watch/agent Preview jobs: `SandboxHostEffects` | Explicit immutable job request, current project/grants and development-tool dependencies; no Pi dependency tree borrowed for generic jobs. | Separate key-free HOME/TMP and explicit activation/session/project/job owner; revocation/stop/drain rules preserved. No silent adoption of arbitrary descendants. |
+| Native API 2 agent tools: `SandboxExtensionExecution` / `MilkExtensionWorker` | Validated helper/library closure and verified package; capability-scoped file authority; minimal non-shell roots, development dependencies only for shell tools; code read-only. | Separate signed helper identity without Milk Keychain entitlement; private key-free HOME/TMP and bounded typed IPC. Trusted native UI stays in-process. |
+| Controlled Git: `SandboxHostEffects.git` | Sandboxed preflight then exact recognized real Git escalation; configured hooks/helpers/editors remain the explicit exception. | Sanitized Git environment and explicit Git user HOME/validated SSH socket; no Local key, no surrounding shell elevation. |
+
+`AgentInstallationStore`, downloads, libarchive extraction/inventory and installation
+metadata remain trusted in-process Milk code. No archive helper was needed: existing
+validation rejects traversal/link/special entries and validates the complete candidate
+before executable validation. Trusted user Terminal/Editor/GitService/user Preview and
+native extension UI remain host-owned. Explicit `--verify-*` diagnostic fixtures are
+not production agent launch paths. The three production RPC launch callers are the
+backend, compatibility probe and stock worker; all supply an explicit ON/OFF argument.
+Unclassified utility purposes and ON RPC launches without a profile fail before spawn.
+
+### Executable closure and discoveries
+
+`SandboxExecutableClosure` inspects executable regular files with descriptor and
+identity checks, bounded reads, thin/universal arm64 Mach-O validation, recursive
+non-system dylib/rpath resolution and supported absolute shebang chains. It never
+executes an inspection utility against an unvalidated candidate. Unknown/malformed,
+missing, relative or embedded loader-environment forms reject ON. Universal slices
+are inspected at their actual offsets. Selected code identities are rechecked at
+admission; there is no implicit retry, ambient PATH runtime substitution or OFF fallback.
+
+`env name` shebang resolution searches only selected installation/support and system
+directories; ambiguous `env -S`, assignments and multi-argument forms reject ON.
+Validated script interpreter/argument chains launch explicitly. Apple Python/Swift/
+xcodebuild/xcrun shims resolve to the validated selected developer executable rather
+than launching hidden Xcode helpers/global cache writers. Node module entry points
+receive their real bounded node_modules graph. Native Pi uses named resources rather
+than arbitrary external executable-parent access. Environment DEVELOPER_DIR and
+PI_PACKAGE_DIR values do not themselves grant filesystem access.
+
+Focused failures led to concrete fixes, not broader permissions:
+
+- Apple Python's shim attempted undeclared Xcode helper/cache operations: execute
+  the validated interpreter chain directly; no global-cache/Xcode helper fallback.
+- Homebrew Node dylib aliases required literal symlink objects and ancestor metadata;
+  these are declared without granting broad Homebrew data access. Homebrew libcrypto
+  needs only its named OpenSSL config/certificate inputs, now declared explicitly.
+- A pre-existing source/target hard link bypassed a pathname-only read-only source
+  rule. `SandboxInputBoundary` now rejects contradictory existing inode aliases and
+  source symlinks crossing into writable targets before package execution. Metadata
+  inventory is bounded at 100,000 entries per tree and fails on inspection errors.
+  It is admission validation, not atomic isolation from independent authorized writers.
+- Old fixtures logged outside their declared private/target contracts. They now use
+  permitted fixture storage or host-owned readonly execution metadata; ON was retained.
+- Kernel `/private/var` canonical paths replaced `/var` string assumptions in assertions.
+
+### Policy refresh and rollout
+
+`SandboxLaunchAuthority` supplies current default/persisted policy and inactive profile
+roots even at standalone probe entry points. Shared settings observers stop auxiliary
+processes and recheck policy/identity before accepting results. Invalid settings fail
+closed. A terminated lifecycle owner refuses new utility work.
+
+Security-relevant policy edits close admission/invalidate grants, stop/drain old
+runtimes and jobs, then reconnect only previously connected/starting conversations
+through coordinator barriers under freshly compiled profiles. Unconnected history
+stays lazy; jobs require a fresh explicit start. Timeout-only changes do not restart
+immutable profiles. A gated lifecycle test proves no new backend is created before
+old drain completes and Session grants are invalidated first.
+
+Default/missing settings were already ON after Phase 2; Phase 6 closes the remaining
+purpose gates and removes preparatory/partial-coverage UI wording. Explicit persisted
+OFF remains OFF and is reported as unenforced. Ask/Autonomous stays independent.
+No schema reset or override of saved user choice was introduced.
+
+### Validation performed
+
+All executable proofs use local/synthetic fixtures; no new live credential/provider
+authorization is inferred. Direct Swift commands use the full Xcode toolchain and
+repository module/cache directories. Actual Seatbelt tests ran outside the outer
+tool sandbox with reviewed escalation, not with Milk Sandbox disabled.
+
+- Focused purpose/lifecycle/install/host-effect gates: **33/33 passed**,
+  `/private/tmp/milk-phase6-gates.log`.
+- Final focused purpose/Preview/provider/transport regressions: **19/19 passed**,
+  `/private/tmp/milk-phase6-preview-final.log`; includes **14 purpose tests**.
+- Final full `swift test --cache-path "$PWD/.build/cache" --disable-sandbox`:
+  **299/299 passed, zero failures**, 213.168 seconds,
+  `/private/tmp/milk-phase6-full-final.log`.
+- `python3 -m unittest discover -s Tests/SandboxPhase1 -v`: **22/22 passed**,
+  26.373 seconds, `/private/tmp/milk-phase6-phase1.log`.
+- Resource/package recipe: **1/1 passed**, `/private/tmp/milk-phase6-resources.log`;
+  no coding-agent runtime bundled by the actual recipe.
+- `./scripts/build.sh --disable-sandbox`: **passed**,
+  `/private/tmp/milk-phase6-build.log`.
+- `codesign --verify --deep --strict output/Milk.app`: **passed**. Actual worker
+  identifier is `dev.milk.extension-worker`; its sole entitlement is
+  `com.apple.security.cs.disable-library-validation = true`, without a Milk Keychain
+  identity or helper provisioning profile. This is ad-hoc hardened-runtime development
+  signing, not Developer ID/notarization/provisioned Keychain acceptance.
+- Packaged worker: `MILK_TEST_WORKER_PATH` selects the actual staged helper for
+  `SandboxHostEffectsTests.testActualExtensionWorkerIsolationProtectedOnceSessionGitCancellationAndNativeUI`:
+  **1/1 passed**, `/private/tmp/milk-phase6-packaged-worker.log`. Signed helper loading,
+  real worker/child/Git isolation, Protected Once/Session, cancellation/revocation and
+  trusted native UI behavior remain covered.
+
+Purpose executable proofs include system Mach-O and universal validation; invalid
+interpreter/PATH/identity rejection; real Apple Python shim and script; real installed
+Homebrew Node with env shebang, module and Intl inputs while malicious ambient PATH
+is ignored; real pinned Pi compatibility; private Preview HOME/profile cleanup;
+package target/source policy, Project Read Only/inactive/Protected roots and inode
+alias rejection; a real local clang-compiled candidate installed from a hash-pinned
+tar through the actual installation manager and default compatibility probe. The
+candidate verifies private state, absence of synthetic MILK/OPENAI keys, denied outside
+writes and five RPC discovery reply paths. No fake compatibility result substitutes
+for candidate execution.
+
+### Main files and exit decision
+
+New purpose/closure boundaries are `Sources/Milk/{SandboxExecutableClosure,
+SandboxPurposePlan,SandboxLaunchAuthority,SandboxInputBoundary}.swift`. Wiring affects
+`PiRuntimeService`, `PiLaunchContext` (the resolver), `PiUtilityProcess`, `PiCompatibilityProbe`,
+`PiBackend`, `PiSandboxExecution`, `SandboxProfile`, `SandboxHostEffects`,
+`SandboxExtensionExecution`, `PiInstallationManager`, `ExtensionService`, `AgentService`,
+`AgentLifecycle`, `ShellState` and `SandboxSettingsView`. Focused fixtures/tests live
+in `SandboxPurposeTests`, `PiInstallationTests`, `AgentLifecycleTests` and the test-only
+raw RPC overload. Current README/RUNTIME, purpose/policy/host-effect, profile/Keychain,
+extension/development and repository-index references are updated. Approved architecture
+and L1/L2 decisions are unchanged.
+
+The interrupted Phase 6 work was checkpointed externally as
+`0eb011390f54220656749922ee6682fd0aa91298`; continuation verified that clean baseline
+and preserved it. No commit, push, merge, rebase or branch change was performed by this
+implementation. Final diff/status review and `git diff --check` passed; new source
+and purpose-reference files were reviewed too. Branch remains `security/api-keychain`.
+
+**Phase 6 complete. No new production-containment blocker remains. Phase 7 is ready
+for separate authorization and has not begun.** The plan remains active for that work.
+
+Remaining limitations and acceptance concerns:
+
+- Accepted L1 deliberate detached survivors may retain inherited static filesystem
+  access; no authoritative all-descendant death or revocation claim is introduced.
+- Accepted L2 Pi-owned children/MCP/extensions retain the inference-key trust domain;
+  separate Milk executors/workers/jobs/probes remain key-free. Real Git hooks/helpers
+  remain the explicit elevated exception.
+- Closure and source/target alias checks are bounded admission snapshots, not atomic
+  protection against independent concurrent filesystem writers. Opaque launchers with
+  unsupported shebangs or undeclared dependencies fail ON with actionable errors.
+- Existing-profile-only configured-provider Preview inspection remains explicit; no
+  auth/profile copy, inactive-profile exception or universal broker was introduced.
+- Phase 7 still owns manual/concurrent approval UX, broader supported-host/adversarial
+  acceptance, authorized live-provider acceptance, release signing/notarization and
+  provisioned Data Protection Keychain persistence. None is claimed by these tests.
+
+
+## Phase 7 execution record — 2026-11-02
+
+User authorized final acceptance, smallest defect corrections and current-reference
+reconciliation. Baseline remains security/api-keychain at 0eb011390f54220656749922ee6682fd0aa91298
+with the Phase 6 continuation changes preserved. No history or branch mutation.
+L1/L2 and the approved architecture remain settled.
+
+### Acceptance reconciliation before broad testing
+
+The unchecked matrix above is a coverage request, not evidence of missing production
+code. Existing evidence is mapped below; fresh final execution is required before
+checking an item. Details/results are maintained in `docs/SANDBOX_ACCEPTANCE.md`.
+
+| Matrix group | Existing executable evidence to rerun / strengthen | Claim boundary |
+| --- | --- | --- |
+| Policy/settings | SandboxPolicyTests, SandboxSettingsTests | Canonical precedence, defaults, independent modes, durable OFF, protected restore/edit, overlap rejection. |
+| Grants/lifecycle | SandboxGrantTests, AgentLifecycleTests, SandboxExecutionTests | Once/Session admission, revoke/cancel/timeout, restart/reopen/new owner, drain barriers and unrelated-process safety; detached-survivor limitation retained. |
+| Profiles/credentials | SandboxPolicyTests, SandboxEnvironmentTests, SandboxProviderParityTests, PiProfileOwnershipTests, AgentProviderCredentialTests | Managed/Existing and synthetic localhost discovery/inference/key replacement/scoping; no claim of live service or provisioned securityd success. |
+| Tools/purposes | SandboxExecutionTests, SandboxPiIntegrationTests, SandboxPurposeTests, Phase 1 Python | Real stock tools/children/MCP, developer tools, malformed closure/no fallback, private state, installation/package containment. |
+| Approval UX | SandboxPopupTests plus focused Phase 7 concurrent-session/queue/invalidation/window-close fixture | Real anchored AppKit/SwiftUI rendering and programmatic responses, not manual human clicks. |
+| Git | SandboxHostEffectsTests and GitTests plus focused remaining Git metadata/branch cases | Real local repos/remotes/hooks/editors/helpers and exact elevated operation; no real repository history mutation. |
+| Native API 2 | NativeExtensionTests, NativeExtensionIntegrationTests, packaged actual-worker test | Lifecycle/integrity/nonce/files/Protected/Git/cancel/revoke/native UI; synthetic Keychain deletion contract only. |
+| Preview/jobs | PreviewTests, SandboxHostEffectsTests, lifecycle suites | Trusted user versus agent origins, static/dev server/readiness/rendering/stop/restart/owner receipts; explicit jobs only. |
+| Release | Existing normal/release scripts, Python packaging/signing/version/resources, strict signatures and actual packaged worker | Current host local/ad-hoc artifact acceptance; Developer ID/notarization requires external signing access. |
+
+Host inventory: Apple Silicon arm64, macOS 26.5.2 (25F84). Initial
+`security find-identity -p codesigning -v` reports **0 valid identities**.
+Provisioned Data Protection Keychain and Developer ID/notarization remain NOT RUN /
+external prerequisite; never forge entitlements or add weaker storage. No additional
+host is established. Live provider acceptance requires an available authorized
+non-admin inference credential; synthetic localhost fixtures remain independently valid.
+
+- [x] Reconcile every unchecked matrix group with existing tests before broad execution.
+- [x] Focused adversarial/concurrency acceptance and any smallest defect corrections.
+- [x] Fresh full Swift and Python regressions.
+- [x] Normal/release builds, artifact inspection, strict signatures and packaged worker.
+- [x] Current-reference reconciliation, final evidence and truthful release gate decision.
+
+
+### Phase 7 discoveries and corrected boundaries
+
+1. Explicit Protected regular files with pre-existing hard-link aliases could be read
+   under a broader grant: policy inode recognition did not make Seatbelt pathname
+   exclusions cover every name. ON now rejects multi-link explicit Protected files
+   before compilation. Child creation of new aliases is separately denied. No global
+   hard-link inventory or atomic admission claim is added.
+2. Actual release artifact inspection found private build paths in debug/OSO records
+   and two #filePath strings. Release-only compiler remapping/debug stripping plus
+   checkout-diagnostic cwd fallbacks remove them. The actual packager now rejects
+   private checkout/home prefixes before publishing metadata and after ZIP extraction;
+   a regression covers source/object-path leaks and intentional synthetic verifier values.
+3. A real Xcode target build, beyond previous version output, requires native
+   item-replacement directories under per-user TemporaryItems on this host even with
+   private HOME/TMPDIR and project-scoped DerivedData/cache settings. The private-only
+   attempt fails closed; a separate explicit sandboxFolders request with Allow Once
+   enables the build while unrelated outside writes and credentials stay denied.
+   This shared folder may contain other applications' temporary data: it is extra
+   user-approved authority, never a new default or Milk-private cache. No command is
+   automatically retried by production. The final test corrects a Foundation `/var`
+   spelling assertion with the kernel resolver, without changing production policy.
+
+The new opt-in native diagnostic exercises the real app termination delegate with a
+synthetic backend and anchored request pending. Quit and window-close both cancel the
+continuation, remove grants before the first backend shutdown callback, reject stale
+operation identity and preserve unrelated processes/project data. Light/Dark captures
+were visually inspected. The initial diagnostic used inline AppKit termination and
+hung; it was corrected to the repository's existing delayed-selector pattern. That
+was a fixture defect, not evidence of a production termination failure.
+
+Earlier current-reference index wording incorrectly said enforcement remained pending;
+this is corrected. Approved architecture and historical phase records stay unchanged.
+
+
+### Phase 7 final validation and exit decision
+
+**Local campaign passed; Phase 7 and the overall Sandbox project are not complete.**
+The plan remains active; it is not moved/archived while required external gates are
+unpassed. No further production defect is known from this campaign within the stated
+finite/accepted contract. The Xcode shared TemporaryItems dependency requires the
+existing explicit user approval; default filesystem authority was not widened.
+
+Final fresh Swift: **304/304 passed**, zero failures/skips, 237.593 seconds,
+`/private/tmp/milk-phase7-full-final.log`. The entire run selected the actual stripped,
+ad-hoc hardened-runtime release MilkExtensionWorker; its real compiled API 2 fixture
+passed. Python: **32/32** (Phase 1 22; resource 1; signing 2; release 5; versioning 2),
+`/private/tmp/milk-phase7-python-final.log`. Earlier 302/303-test runs and focused
+30-test correction run remain intermediate evidence, not the final count.
+
+`./scripts/build-release.sh --disable-sandbox` passed; actual ZIP extraction/CRC,
+checksum/canonical metadata, nested signatures/architectures/entitlements and private
+build-path rejection passed. Artifact is Milk-0.7.0-macOS-arm64.zip, build 7,
+5,668,469 bytes; SHA256 52309a710ceb743a94c78ef48e943b96c3177f1fdb9e28a0e234d53e317f7801.
+Final normal `./scripts/build.sh --disable-sandbox` and strict deep verification
+passed afterward. Release-helper proof preceded debug bundle replacement. Exact
+commands, provenance, logs and complete Phase 7 file list are in
+`docs/SANDBOX_ACCEPTANCE.md`.
+
+Six actual release-app scenarios passed: pending Sandbox popup Quit/Light and
+window-close/Dark; Preview Quit/window-close; Terminal Quit/window-close. These
+exercise the actual termination delegate, plus programmatic AppKit interactions;
+no manual human click acceptance is claimed. Concurrency/queued background requests,
+wrong-session/stale answers, timeout/suppression expiry/Ask no timer, grant revoke,
+restart/settings/jobs and real tool/Git/native/Preview routes passed in the Swift
+suite. Normal host Git/Terminal/Preview behavior remains covered.
+
+Provider evidence is actual Pi against synthetic localhost providers, including
+API-key/None, selection/reasoning, scoped replacement/revocation, stale auth and
+managed/Existing boundaries. No live oMLX/hosted account or real stored-credential
+restart acceptance is claimed. No usable dedicated live inference credential was
+established. No personal auth/profile file was changed.
+
+External prerequisites and unpassed gates:
+
+- `security find-identity -p codesigning -v`: **0 valid identities**; signing/profile
+  environment unconfigured, standard profile directories empty. A valid signing
+  identity and matching explicit Milk App ID provisioning profile are required for
+  real save/read/update/existence/scoping/delete, rebuild/restart and prompt acceptance.
+  The actual ad-hoc app verification correctly exits 1 with no fallback; that is not
+  a persistence PASS.
+- Developer ID and authorized notarization/stapling access are unavailable. Local
+  signatures/ZIP integrity pass, but Gatekeeper **rejects** the ad-hoc release (exit 3).
+  Distribution acceptance remains unpassed.
+- Dedicated authorized non-admin live inference credentials/services are needed for
+  live Local replacement/revocation/restart persistence; hosted/OAuth only for accounts
+  separately authorized/available. No admin credential was used.
+- Only Apple Silicon macOS **26.5.2 (25F84)** was tested, with Xcode 26.6/Swift 6.3.3.
+  Additional hosts and manual human interaction remain coverage limits, not inferred
+  PASS claims or reasons to redesign production.
+
+Accepted L1/L2, elevated Git helper trust, bounded path/executable/alias snapshots,
+Existing configured-provider-only Preview seam and lack of global hard-link inventory
+remain explicit. No restricted entitlement, universal credential broker, VM, FSKit,
+upstream Pi patch or approved architecture/UX change was introduced. Current-reference
+README/runtime/policy/purpose/host-effect/profile/Keychain/extension/development/index
+and the 24-file campaign inventory were reconciled; historical reports stay historical.
+
+Final branch remains security/api-keychain at checkpoint 0eb011390f54220656749922ee6682fd0aa91298;
+all prior local work is preserved. Final diff/status and whitespace review passed.
+No commit, push, merge, rebase or branch change was performed.
+
+
+## Approved normal login-Keychain revision — 2026-11-02
+
+The user superseded the provisioned Data Protection Keychain decision. Change only
+Milk's persistent secret backend to ordinary macOS file-based/login Keychain through
+SecItem. Keep all agent/profile/provider/exact-endpoint identity, normalization,
+models.json indirection, stale-auth header behavior, None/replacement/deletion,
+redaction and Pi/Milk execution-domain boundaries. No plaintext fallback, auto legacy
+import, shared group, credential broker or filesystem authority change.
+
+Ad-hoc/private distribution is the supported default. Developer ID, provisioning,
+notarization/stapling and additional-host/manual-human/live-account coverage are no
+longer completion prerequisites by themselves. Gatekeeper/Open Anyway behavior must
+be reported honestly; no quarantine or trust bypass. Optional signing support remains.
+
+At revision entry, AgentProviderCredentials selected Data Protection and used
+DP accessibility/authentication-context attributes and provisioning-only errors.
+Legacy import is explicit. ScopedSecrets for trusted native UI already uses normal
+SecItem; worker Mach-service/environment isolation is unchanged. New backend uses a
+fresh scoped service namespace; old file-Keychain namespaces remain explicit recovery
+sources and DP items are neither automatically queried nor deleted.
+
+Noninteractive ordinary Keychain access requires a synchronous, serialized and
+restored SecKeychain user-interaction scope; per-query DP/LAContext controls are not
+assumed to suppress file-Keychain UI. Default item ACLs stay untouched. Explicit
+Settings recovery may request ordinary macOS authorization for a rebuilt app.
+Measure current-build CRUD, separate launches, same-path rebuild and changed ad-hoc
+signature access using only disposable verifier identities/values; never print values.
+
+- [x] Reverify branch/working changes and audit current backend/recovery/signing paths.
+- [x] Implement ordinary SecItem backend, scoped UI behavior and focused regressions.
+- [x] Build actual app; measure CRUD, launch/rebuild and default ACL behavior/cleanup.
+- [x] Fresh provider/profile/domain/full Swift/Python/build/release/artifact validation.
+- [x] Reconcile current design/references and final completion criteria from evidence.
+- [x] Complete/move plan only if required normal-Keychain and technical gates pass.
+
+
+### Normal-Keychain revision measured results before final regressions
+
+- Focused credentials/settings/environment: 29/29 passed; expanded provider/profile/
+  domain suite: 43/43 passed. Source no longer uses the DP selector, accessibility/
+  LAContext attributes or provisioning-only failure. New primary service is
+  dev.milk.agent-provider.login.v1; current/older scoped recovery remains explicit.
+- Actual ad-hoc app: ordinary Keychain save/read/update/existence/delete and
+  agent/profile/provider/endpoint isolation passed; separate app process read passed.
+  Real unchanged-code rebuild kept its CDHash and noninteractive access.
+- A nonce-resigned bundle changed CDHash: normal access correctly failed -25293.
+  The explicit production recovery path succeeded after the user confirmed authorizing
+  the native macOS dialog; a separate subsequent process read noninteractively.
+  Creator restored, retained value read, deletion and missing-item check all passed.
+  No ACL edited in code; no password/secret logged; SecurityAgent automation was blocked
+  and no attempt was made to bypass that restriction.
+- Actual packaged API 2 fixture attempted ordinary SecItem read of a real disposable
+  item created by Milk. ON and OFF worker attempts both denied; the Milk creator
+  still read it before verified cleanup. Environment/domain isolation remains tested
+  separately. The opt-in test needs MILK_TEST_KEYCHAIN_APP and MILK_TEST_WORKER_PATH;
+  ordinary source-only test runs skip this real-Keychain acceptance instead of touching
+  the personal store. The authorized final run supplies both selectors.
+- No fresh authorized non-admin live oMLX/hosted credential was established. Existing
+  earlier sub-key evidence stays historical; no new admin-key use or legacy-user secret
+  read. Fresh live acceptance remains NOT RUN, optional under this approved decision.
+
+Final full Swift/Python, normal/release/signature/private-path validation and the plan
+completion decision follow below. Default ACL prompts remain possible for future
+changed signatures; no silent-across-all-updates guarantee is made.
+
+
+### Final ordinary-Keychain validation and completion — 2026-11-02
+
+**Phase 7 COMPLETE. Overall Sandbox/security project technically COMPLETE within the
+approved contract and accepted limitations. No unresolved production/security blocker
+was found.** Earlier DP/provisioned/notarized mandatory gates are superseded by the
+explicit user decision, not falsely converted into passed old tests. Optional live
+provider, Developer ID/notarization/stapling, other hosts and broad manual-human
+coverage remain NOT RUN/unclaimed. The plan is moved to completed status.
+
+Final validation after backend changes:
+
+- Focused credentials/settings/environment **29/29**; expanded provider/profile/
+  credential-domain **43/43**; actual packaged worker/store isolation **1/1** passed.
+- Final full Swift **308/308**, zero failures/skips, **236.340 seconds**,
+  `/private/tmp/milk-login-keychain-full.log`. MILK_TEST_KEYCHAIN_APP and
+  MILK_TEST_WORKER_PATH selected the actual stripped ad-hoc release app/helper.
+  This includes real disposable normal-Keychain owner-versus-worker access under
+  ON and OFF, real Pi child/MCP inheritance, key-free Milk processes, provider
+  selection/None/stale-auth/rotation/scoping, Git/native/Preview/lifecycle/purpose
+  regressions and the accepted Xcode TemporaryItems Once dependency.
+- Full Python **32/32**: preserved Phase 1 **22**, resources **1**, optional signing
+  **2**, release **5**, versioning **2**; `/private/tmp/milk-login-keychain-python.log`.
+- Actual normal ad-hoc app and final release app passed save/read/update/existence/
+  delete plus agent/profile/provider/endpoint isolation. Separate-launch and same-code
+  rebuild reuse passed; the rebuild's CDHash was unchanged. A nonce-resigned same-path
+  variant changed CDHash and was denied noninteractively (-25293). The user authorized
+  native macOS recovery; exact production recovery and separate-process reuse then
+  passed. Creator restoration/read/delete/missing-item checks verified cleanup.
+  No ACL was relaxed in code, password observed or secret printed. The measured
+  native prompt was user-authorized; other Sandbox UI coverage remains automated.
+- Normal build `./scripts/build.sh --disable-sandbox`, release build
+  `./scripts/build-release.sh --disable-sandbox`, strict deep/nested signatures,
+  arm64/hardened-runtime checks, real archive extraction/checksum/canonical metadata,
+  and private-build-path/auth-file/private-key-marker/runtime exclusions passed.
+  Final normal build and real CRUD were repeated after the full suite. Optional
+  signing identity support remains; default storage needs no entitlement/profile.
+- Release ZIP Milk-0.7.0-macOS-arm64.zip, build 7, **5,674,576 bytes**, SHA256
+  **69ff3cc283b8b0ffffe78a7c7c82983468164dd311a89897f9c2bf8d53426d4c**.
+  Full-suite release-helper proof preceded replacement by the final debug app.
+  Gatekeeper assessment rejects the ad-hoc release (exit 3), expected for this
+  optional trust path. No quarantine or Gatekeeper bypass was attempted; private
+  users may choose Open Anyway themselves.
+
+Evidence logs: `/private/tmp/milk-login-keychain-{focused,provider-domain,worker-store,
+full,python,release,artifact,release-crud,build-final,crud-final,recovery-final}.log`;
+`persistence.log` records rebuild/hash behavior. One early explicit-authorization
+fixture timed out; its creator-identity cleanup succeeded. The later user-assisted
+run proves recovery and next-process access; failures were not relabeled as passes.
+
+Current references/API guide and approved architecture record the normal backend,
+explicit older-store recovery, optional distribution, measured ACL behavior and
+unchanged L1/L2/Git/snapshot/Preview limitations. The existing native ScopedSecrets
+facility was audited: it already uses ordinary SecItem under its distinct extension
+namespace and remains trusted-UI-only; workers have no such facade. The new real
+worker/store proof covers the changed primary provider store's default ACL/service
+boundary. No filesystem sandbox implementation or upstream Pi change was made.
+
+Fresh live oMLX/hosted-account acceptance is NOT RUN: no already available authorized
+non-admin inference credential was established; the earlier one-off sub-key was
+already deleted. No admin key or unrelated credential was read/modified. Existing
+synthetic providers and historical live evidence are clearly distinguished. One
+Apple Silicon host/macOS 26.5.2 (25F84), Xcode 26.6, Swift 6.3.3 was tested.
+
+All pre-existing local work remains preserved on security/api-keychain at checkpoint
+0eb011390f54220656749922ee6682fd0aa91298. No commit, push, merge, rebase or branch change.
+Final source/diff/status/whitespace and current-reference link checks passed.

@@ -123,7 +123,7 @@ to compile Milk or a native Milk extension.
 
 ## Sandbox policy tests
 
-Sandbox policy, path, settings, grants and Phase 3 execution tests use disposable files/preferences:
+Sandbox policy, path, settings, grants and execution tests use disposable files/preferences:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -159,3 +159,55 @@ not a bundled coding agent. Rebuild API 1 native packages for API 2; view/layout
 settings registrations remain, while agent handlers must move to the worker entry.
 See [extension development](EXTENSION_DEVELOPMENT.md) and
 [host-effect boundaries](SANDBOX_HOST_EFFECTS.md).
+
+
+Phase 6 adds `SandboxPurposeTests` and lifecycle relaunch checks. They execute real
+Seatbelt plans, system scripts/shims, optional local Node/module dependencies, local
+package commands and a locally compiled hash-pinned native candidate through the
+actual installation transaction. No candidate is run unrestricted as a test setup
+step. Candidate fixture compilation/archive creation are trusted test preparation;
+candidate version/RPC execution uses the production contract. The new tests need
+full Xcode and permission to run sandbox-exec, as do the existing integration suites.
+See [purpose contracts](SANDBOX_PURPOSES.md) for supported closure and boundaries.
+Default ON preserves existing saved OFF; the app build remains ad-hoc development
+signing by default, with ordinary login-Keychain credentials. See [Sandbox acceptance](SANDBOX_ACCEPTANCE.md)
+for exact final evidence and optional distribution/coverage limitations.
+
+
+Phase 7 adds `SandboxAcceptanceTests` and concurrent anchored-popup routing tests.
+`python3 Tests/Fixtures/verify_sandbox_shutdown.py` runs the packaged app's opt-in
+`--verify-sandbox-quit` / `--verify-sandbox-window-close` diagnostics with a pending
+Sandbox popup. They use a synthetic backend, disposable preferences/workspace and
+the real app termination delegate; normal launch never runs this fixture. Captures
+and shutdown metadata go to ignored `output/verification-sandbox/`. This is automated
+AppKit interaction, not manual human acceptance or live-provider validation.
+
+
+Release packaging remaps source/debug paths and strips debug/OSO records before
+signing. The packager rejects the builder's checkout/home prefixes in the built and
+unpacked bundle. Debug builds retain source locations; release-only checkout
+verification modes must be launched with the repository as their working directory.
+Bundled product versioning always uses Info.plist. This artifact hygiene is independent
+of optional Developer ID/notarization; neither is required for private builds or credentials.
+
+
+Real Xcode builds can require the macOS per-user `TemporaryItems` item-replacement
+folder even with private TMPDIR and project-scoped DerivedData/cache flags. Milk does
+not admit that shared folder automatically: a command may explicitly request it
+through the normal temporary folder approval flow. The acceptance build verifies
+that an Allow Once grant enables the build while unrelated outside writes remain
+denied and the grant expires for future admission. The folder can contain other
+applications' temporary data, so this is extra reviewed authority, not private cache
+redirection. Private-TMP-only Xcode builds are not claimed; Swift compilation with
+private module caches is independently covered. See [acceptance](SANDBOX_ACCEPTANCE.md).
+
+
+Ordinary Keychain acceptance: build ad-hoc, then run the bundled
+`--verify-provider-keychain` check and optional
+`python3 Tests/Fixtures/verify_provider_keychain.py --rebuild --changed-signature`.
+Only disposable UUID identities/synthetic values are used and deleted. Adding
+`--authorize` permits the explicit recovery flow and may require native user action;
+never automate a login password or put it in logs. User-confirmed native authorization
+and a subsequent separate-process read were measured in this revision. See
+[API Keychain](API_KEYCHAIN.md). Optional signing/profile support remains available;
+no profile is needed for default credential storage. Do not bypass Gatekeeper.

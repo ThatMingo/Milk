@@ -166,7 +166,7 @@ Milk's production model limits.
 
 `AgentProviderCredentials` is a generic Keychain facility. All current Pi adapter
 settings, discovery and runtime credential lookups supply the profile identity. Its service is
-`dev.milk.agent-provider`; its structured account includes agent `pi`, a stable Pi profile identity, provider
+`dev.milk.agent-provider.login.v1` in ordinary macOS login/file-based Keychain; its structured account includes agent `pi`, a stable Pi profile identity, provider
 `local` and the endpoint. The profile identity is based on the canonical resolved profile path alone.
 Different Existing Pi executables sharing that directory share Milk-side provider
 state, matching their shared native Pi state. Runtime registration identity is
@@ -252,3 +252,10 @@ No chat/session stability work was performed. Existing deletion restrictions for
 externally owned Pi runtimes remain unchanged; that rule may be relevant to the
 reported undeletable session, but no diagnosis was established. No cause for the
 reported transcript/live-entry problems is claimed.
+
+
+Normal-Keychain storage requires no provisioning/Developer ID. Current scoped entries
+are primary; older file-Keychain namespaces are only explicit recovery sources.
+Recover Stored Key may invoke standard macOS authorization after a changed ad-hoc
+signature. No Data Protection fallback or plaintext/config secret is used. See
+[measured backend/rebuild behavior](API_KEYCHAIN.md).

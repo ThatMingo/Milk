@@ -318,7 +318,8 @@ shell, Python, Node and network effects execute inside the worker's profile and
 credential-free environment. Declare `.shell`/`.network` when needed. Git requests
 must declare `.gitRead`/`.gitWrite` and pass the same structured real-Git gate as Pi.
 Worker-specific AppleEvent and sensitive Mach-service denials prevent using native
-UI services as a host fallback. Broader purpose closure remains later work.
+UI services as a host fallback. Helper executable/library/interpreter dependencies
+are validated before launch and remain read-only. See [purpose contracts](SANDBOX_PURPOSES.md).
 
 `files` uses `.argument` to name a top-level string path argument (absolute or relative
 to the project), or `.storage` for a fixed relative path under extension data.
@@ -639,3 +640,19 @@ These are inspection/reference locations; an extension author changes their own 
 ## Current limitations
 
 Trusted native UI is not sandboxed; its crashes cannot be isolated. Agent workers use a separate process and OS profile. The current loader accepts arm64/macOS 26+ bundles. Already mapped native code requires restart for replacement. There is no marketplace, automatic update feed or enforced publisher authority. Signature reporting and integrity checks do not establish publisher trust. API 2 may evolve; unsupported contribution points require an intentional SDK/core change. Native code has cooperative cancellation limits and cannot be safely hot-unloaded. The oMLX example demonstrates broad integration with external infrastructure; it does not make oMLX part of Milk core.
+
+
+Pi local package registration/removal now runs the actual selected runtime through a
+separate package purpose: private HOME/cache/TMP, no provider key, read-only external
+source and only the selected target profile writable under current policy. Ambiguous
+source/target hard-link or symlink overlap fails closed. No source folder is implicitly
+granted write access. Native worker load/cancel/signing boundaries and API 2 remain
+unchanged. Security-policy edits stop old jobs/workers; explicit restart receives fresh
+authority. Sandbox OFF is clearly unenforced and never a missing-capability fallback.
+
+
+See [Sandbox final acceptance](SANDBOX_ACCEPTANCE.md) for the current-host automated
+and packaged-runtime evidence and the exact unpassed release prerequisites. Synthetic
+provider tests do not establish live-account or multiple-host acceptance. Normal
+login-Keychain persistence/recovery is measured in the ad-hoc app; Developer ID/
+notarization are optional distribution improvements, not credential prerequisites.

@@ -91,7 +91,7 @@ extension PiAdapter: AgentSettingsProviding {
             let found = try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: value.local.endpoint, profile: profileIdentity)
             if found { configuration.local.authentication = .apiKey }
             refreshCredentialState()
-            result = found ? "Legacy credential imported for this profile. Save Pi Settings to use it." : "No legacy credential found. Paste a new API key."
+            result = found ? "Stored credential recovered for this profile. Save Pi Settings to use it." : "No stored credential found. Paste a new API key."
         } catch { result = error.localizedDescription }
     }
     func endpointChanged() {
@@ -212,8 +212,8 @@ struct PiSettingsContent: View {
                 HStack { SecureField("Unchanged", text: Binding(get: { model.token }, set: { model.token = $0; model.replaceToken = true })).textFieldStyle(.roundedBorder); Button("Remove") { model.token = ""; model.replaceToken = true; model.configuration.local.authentication = .none } }
             }
         }
-        SettingsRow(title: "Legacy API key", subtitle: "Import for this endpoint and profile. macOS may ask permission once; existing entries are preserved.") {
-            Button("Import Legacy Key…") { model.importLegacyCredential() }.disabled(model.busy || model.replaceToken)
+        SettingsRow(title: "Keychain recovery", subtitle: "Authorize this build or import an older key for this endpoint and profile. macOS may ask permission; existing entries are preserved.") {
+            Button("Recover Stored Key…") { model.importLegacyCredential() }.disabled(model.busy || model.replaceToken)
         }
         SettingsRow(title: "Connection", subtitle: "Read-only model discovery. Pi sends all inference requests.") { Button(model.busy ? "Testing…" : "Test Connection") { model.testConnection() }.disabled(model.busy) }
         SettingsRow(title: "Default model", subtitle: "Exact server ID for Pi startup. Chat retains available session-specific choices.") {

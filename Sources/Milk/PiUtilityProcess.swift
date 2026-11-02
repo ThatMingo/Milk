@@ -56,6 +56,7 @@ import Combine
                         timeout: Double, mergeErrors: Bool = false, purpose: AgentBackendPurpose,
                         lifecycle: AgentLifecycleCoordinator?, plan suppliedPlan: SandboxPurposePlan? = nil, support: [URL] = [], codeRoot: URL? = nil) async throws -> (Data, Int32) {
         let owner = lifecycle ?? AgentLifecycleCoordinator()
+        guard owner.acceptsNewWork else { throw CancellationError() }
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Purpose-" + UUID().uuidString)
         defer { if suppliedPlan == nil { try? FileManager.default.removeItem(at:temporary) } }
         let authority=SandboxLaunchAuthority.capture()
@@ -71,7 +72,8 @@ import Combine
             let process = resource as! PiUtilityProcess
             let observation=plan.observe { process.shutdown() }; defer { observation?.cancel() }
             try plan.check()
-            result = try await process.run(executable:plan.closure.executable,arguments:arguments,directory:plan.workspace,environment:plan.environment,timeout:timeout,mergeErrors:mergeErrors,sandboxProfile:plan.profile)
+            let command=plan.closure.command(arguments)
+            result = try await process.run(executable:command.0,arguments:command.1,directory:plan.workspace,environment:plan.environment,timeout:timeout,mergeErrors:mergeErrors,sandboxProfile:plan.profile)
             try plan.check()
             try lease.check()
         }

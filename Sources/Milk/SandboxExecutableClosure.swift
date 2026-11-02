@@ -7,6 +7,9 @@ struct SandboxExecutableClosure {
     let roots: [SandboxProfileBuilder.Root]
     let searchDirectories: [URL]
     let snapshots: [SandboxResolvedPath]
+    var interpreter: URL? = nil
+    var argumentPrefix: [String] = []
+    func command(_ arguments: [String]) -> (URL,[String]) { (interpreter ?? executable,argumentPrefix+arguments) }
     func revalidated() -> Bool { snapshots.allSatisfy { $0.revalidated() } }
 
     static func inspect(_ selected: URL, support: [URL] = [], codeRoot: URL? = nil, toolchain: SandboxToolchainEnvironment? = nil) throws -> Self {
@@ -23,6 +26,7 @@ struct SandboxExecutableClosure {
             guard let url=try? narrow(path), !search.contains(url) else { continue }; search.append(url)
         }
         var roots: [SandboxProfileBuilder.Root]=[], snapshots: [SandboxResolvedPath]=[], seen:Set<String>=[]
+        var launches: [String:(URL,[String])]=[:]
         if let codeRoot { roots.append(.init(url:try narrow(codeRoot))) }
         func bytes(_ path: SandboxResolvedPath, offset: UInt64 = 0) throws -> Data {
             guard path.exists, path.finalIdentity?.kind == S_IFREG else { throw failure("Executable dependencies must be regular local files.") }
@@ -39,7 +43,8 @@ struct SandboxExecutableClosure {
             let path=try resolver.resolve(url)
             guard path.revalidated(), !executable || fm.isExecutableFile(atPath:path.canonicalURL.path) else { throw failure("The selected executable/interpreter is unavailable.") }
             guard seen.insert(path.canonicalURL.path).inserted else { return }
-            snapshots.append(path); roots.append(.init(url:path.canonicalURL,subtree:false))
+            snapshots.append(path); roots.append(.init(url:url,subtree:false))
+            if executable { launches[path.canonicalURL.path]=(path.canonicalURL,[]) }
             let imageDirectory=executable ? path.canonicalURL.deletingLastPathComponent() : (image ?? original.canonicalURL.deletingLastPathComponent())
             if executable, ["/usr/bin/python3","/usr/bin/swift","/usr/bin/xcodebuild","/usr/bin/xcrun"].contains(path.canonicalURL.path) {
                 let selector=URL(fileURLWithPath:"/var/db/xcode_select_link")
@@ -48,24 +53,42 @@ struct SandboxExecutableClosure {
                 roots.append(.init(url:selector,subtree:false))
                 for name in ["Info.plist","version.plist"] { roots.append(.init(url:developer.deletingLastPathComponent().appendingPathComponent(name),subtree:false)) }
                 let actual=developer.appendingPathComponent("usr/bin/"+path.canonicalURL.lastPathComponent)
-                if fm.isExecutableFile(atPath:actual.path), (try resolver.resolve(actual)).canonicalURL != path.canonicalURL { try visit(actual,executable:true,depth:depth+1) }
+                if fm.isExecutableFile(atPath:actual.path), (try resolver.resolve(actual)).canonicalURL != path.canonicalURL {
+                    try visit(actual,executable:true,depth:depth+1)
+                    launches[path.canonicalURL.path]=launches[try resolver.resolve(actual).canonicalURL.path]
+                } else { throw failure("The selected Apple developer shim has no validated toolchain executable.") }
+            }
+            // Homebrew OpenSSL embeds its configuration directory in libcrypto.
+            // Admit the named global config/certificate inputs, never the whole prefix.
+            if path.canonicalURL.lastPathComponent.hasPrefix("libcrypto") {
+                let parts=path.canonicalURL.pathComponents
+                if let cellar=parts.firstIndex(of:"Cellar"), cellar+1 < parts.count, parts[cellar+1].hasPrefix("openssl") {
+                    let prefix=URL(fileURLWithPath:NSString.path(withComponents:Array(parts[..<cellar])))
+                    let config=prefix.appendingPathComponent("etc/"+parts[cellar+1])
+                    for name in ["openssl.cnf","cert.pem"] { roots.append(.init(url:config.appendingPathComponent(name),subtree:false)) }
+                }
             }
             var data=try bytes(path)
             if data.starts(with:[35,33]) {
                 guard executable, let end=data.firstIndex(of:10), end <= 4096,
                       let line=String(data:data[2..<end],encoding:.utf8) else { throw failure("Malformed or oversized shebang.") }
                 let words=line.trimmingCharacters(in:.whitespacesAndNewlines).split(whereSeparator:{ $0 == " " || $0 == "\t" }).map(String.init)
-                guard let name=words.first, name.hasPrefix("/"), !name.utf8.contains(0) else { throw failure("Shebang interpreters must be absolute.") }
+                guard let name=words.first, name.hasPrefix("/"), !name.utf8.contains(0), !line.contains("\r") else { throw failure("Shebang interpreters must be absolute.") }
+                let chosen: URL, optionalArguments: [String]
                 if name == "/usr/bin/env" {
                     guard words.count == 2, !words[1].contains("/"), !words[1].hasPrefix("-"), !words[1].contains("=") else { throw failure("Only env <interpreter> shebangs are supported; env -S/assignments need an explicit launcher.") }
                     guard let interpreter=search.map({ $0.appendingPathComponent(words[1]) }).first(where:{ fm.isExecutableFile(atPath:$0.path) }) else { throw failure("Shebang interpreter is absent from the selected installation/system search roots. Ambient PATH is not used.") }
                     // The launch PATH must select this same interpreter, never a different ambient runtime.
                     try visit(URL(fileURLWithPath:name),executable:true,depth:depth+1)
                     try visit(interpreter,executable:true,depth:depth+1)
+                    chosen=interpreter; optionalArguments=[]
                 } else {
                     guard words.count <= 2 else { throw failure("Unsupported multi-argument shebang.") }
-                    try visit(URL(fileURLWithPath:name),executable:true,depth:depth+1)
+                    chosen=URL(fileURLWithPath:name); optionalArguments=Array(words.dropFirst())
+                    try visit(chosen,executable:true,depth:depth+1)
                 }
+                guard let launch=launches[try resolver.resolve(chosen).canonicalURL.path] else { throw failure("Unresolved interpreter chain.") }
+                launches[path.canonicalURL.path]=(launch.0,launch.1+optionalArguments+[path.canonicalURL.path])
                 // A selected npm-installed CLI needs its real module graph, not all of HOME/bin.
                 var ancestor=path.canonicalURL.deletingLastPathComponent()
                 for _ in 0..<16 {
@@ -97,8 +120,9 @@ struct SandboxExecutableClosure {
                 }
                 guard let offset=found else { throw failure("Executable has no Apple Silicon slice.") }; data=try bytes(path,offset:UInt64(offset)); base=0
             }
+            let fileType=try u32(base+12)
             guard try u32(base) == 0xfeedfacf, try u32(base+4) == 0x0100000c,
-                  [2,6,7].contains(try u32(base+12)) else { throw failure("Expected an arm64 Mach-O executable/library or supported shebang script.") }
+                  (executable ? fileType == 2 : [6,8].contains(fileType)) else { throw failure("Expected an arm64 Mach-O executable/library or supported shebang script.") }
             let count=Int(try u32(base+16)), size=Int(try u32(base+20)), start=base+32
             guard count <= 4096, size <= 1_000_000, start+size <= data.count else { throw failure("Unsupported Mach-O command range/slice placement.") }
             var cursor=start, libraries:[String]=[], rpaths:[String]=[]
@@ -109,7 +133,7 @@ struct SandboxExecutableClosure {
             for _ in 0..<count {
                 let command=try u32(cursor), length=Int(try u32(cursor+4))
                 guard length >= 8, cursor+length <= start+size else { throw failure("Malformed Mach-O load command.") }
-                if [UInt32(0xc),0x80000018,0x8000001f,0x80000023].contains(command) {
+                if [UInt32(0xc),0x80000018,0x8000001f,0x80000023,0x20].contains(command) {
                     let offset=Int(try u32(cursor+8)); guard offset >= 12 else { throw failure("Malformed library reference.") }; libraries.append(try string(cursor+offset,limit:cursor+length))
                 }
                 if command == 0x8000001c { let offset=Int(try u32(cursor+8)); guard offset >= 12 else { throw failure("Malformed runtime path.") }; rpaths.append(try string(cursor+offset,limit:cursor+length)) }
@@ -139,7 +163,8 @@ struct SandboxExecutableClosure {
             }
         }
         try visit(selected,executable:true)
-        return .init(executable:original.canonicalURL,roots:roots,searchDirectories:search,snapshots:snapshots)
+        guard let launch=launches[original.canonicalURL.path] else { throw failure("Missing executable launch plan.") }
+        return .init(executable:original.canonicalURL,roots:roots,searchDirectories:search,snapshots:snapshots,interpreter:launch.0,argumentPrefix:launch.1)
     }
     static func failure(_ message: String) -> AgentError { .message("Sandbox executable closure: "+message+" No unrestricted retry was used.") }
 }

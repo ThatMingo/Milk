@@ -120,7 +120,7 @@ final class SandboxHostEffectsTests: XCTestCase {
 @MainActor private final class WorkerProbeUI: MilkExtension {
     override func activate(context: any ExtensionContext) async throws {
         try context.contributions.command(.init(name:"worker-ui",summary:"Trusted native command") { _ in try context.storage.write(Data("trusted UI".utf8),to:"ui.txt") })
-        try context.contributions.piTool(.init(id:"probe",description:"Disposable worker proof",parameters:Data(#"{"type":"object","properties":{"path":{"type":"string"},"action":{"type":"string"}}}"#.utf8),requiredCapabilities:[.shell,.gitRead,.gitWrite],files:[.init(source:.argument,path:"path",writing:true)]))
+        try context.contributions.piTool(.init(id:"probe",description:"Disposable worker proof",parameters:Data(#"{"type":"object","properties":{"path":{"type":"string"},"action":{"type":"string"},"account":{"type":"string"}}}"#.utf8),requiredCapabilities:[.shell,.gitRead,.gitWrite],files:[.init(source:.argument,path:"path",writing:true)]))
     }
 }
 @MainActor private final class WorkerProbeLoader: NativeExtensionLoading {
@@ -138,11 +138,22 @@ extension SandboxHostEffectsTests {
         let source=base.appendingPathComponent("WorkerProbe.swift")
         try Data(#"""
         import Foundation
+        import Security
         import MilkExtensionKit
         public final class Worker: MilkExtensionAgentWorker {
             public override func run(tool: String, arguments: Data, context: ExtensionAgentContext) async throws -> String {
                 let args=try JSONSerialization.jsonObject(with:arguments) as! [String:String]
                 let target=URL(fileURLWithPath:args["path"]!)
+                if args["action"] == "keychain" {
+                    var previous:DarwinBoolean=false
+                    _=SecKeychainGetUserInteractionAllowed(&previous)
+                    _=SecKeychainSetUserInteractionAllowed(false)
+                    defer { _=SecKeychainSetUserInteractionAllowed(previous.boolValue) }
+                    let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"dev.milk.agent-provider.login.v1",kSecAttrAccount as String:args["account"]!,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]
+                    var value:CFTypeRef?
+                    let status=SecItemCopyMatching(query as CFDictionary,&value)
+                    return status == errSecSuccess ? "BYPASS:keychain-readable" : "keychain-denied=\(status)"
+                }
                 if args["action"] == "sleep" { try await Task.sleep(nanoseconds:10_000_000_000); try Data("late".utf8).write(to:target); return "late" }
                 if args["action"] == "git" {
                     var direct="denied"
@@ -211,6 +222,37 @@ extension SandboxHostEffectsTests {
         let revoke=Task { try await invoke(outside.appendingPathComponent("revoke"),action:"sleep") }
         try await Task.sleep(nanoseconds:300_000_000); try await manager.setEnabled(tool.owner,false)
         do { _=try await revoke.value; XCTFail("Revoked worker returned success") } catch {}
+        await manager.shutdown()
+    }
+    @MainActor func testActualWorkerCannotReadMilkNormalKeychainItem() async throws {
+        guard let app=ProcessInfo.processInfo.environment["MILK_TEST_KEYCHAIN_APP"],
+              let helper=ProcessInfo.processInfo.environment["MILK_TEST_WORKER_PATH"] else {
+            throw XCTSkip("Opt-in actual normal-Keychain acceptance requires the built app and packaged worker selectors.")
+        }
+        let run=UUID().uuidString, base=try temporary(), root=try repository(base)
+        func verify(_ phase: String) throws {
+            let process=Process(), output=Pipe()
+            process.executableURL=URL(fileURLWithPath:app).appendingPathComponent("Contents/MacOS/Milk")
+            process.arguments=["--verify-provider-keychain","--keychain-run-id",run,"--keychain-phase",phase]
+            process.standardOutput=output; process.standardError=output
+            try process.run(); let data=output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw AgentError.message(String(decoding:data,as:UTF8.self)) }
+        }
+        try verify("keep")
+        defer { do { try verify("cleanup") } catch { XCTFail("Disposable actual-Keychain cleanup failed: \(error)") } }
+        let account=AgentProviderCredentials.account(agent:.pi,provider:"verification",endpoint:URL(string:"https://keychain-verification.invalid/"+run)!,profile:"verification-"+run)
+        let package=try workerPackage(base), manager=NativeExtensionManager(root:base.appendingPathComponent("support"),loader:WorkerProbeLoader())
+        await manager.setWorkspace(root); let review=try manager.inspect(package)
+        try await manager.install(review,trusting:review.fingerprint,granting:review.capabilities)
+        let tool=try XCTUnwrap(manager.registry.tools.first)
+        for enabled in [true,false] {
+            let (effects,grants)=try self.effects(base,root:root) { $0.configuration.enabled=enabled }
+            let scope=try grants.beginOperation(in:effects.activation)
+            let result=try await effects.extensionTool(id:tool.id,arguments:.object(["path":.string(root.appendingPathComponent("unused").path),"action":.string("keychain"),"account":.string(account)]),manager:manager,scope:scope,helper:URL(fileURLWithPath:helper))
+            XCTAssertTrue(result.text.hasPrefix("keychain-denied="),"Separate worker read Milk's item: \(result.text)")
+            grants.end(scope,reason:.finished); await effects.shutdownAndWait()
+            try verify("read") // The creating Milk app still reads the same physical item.
+        }
         await manager.shutdown()
     }
 }

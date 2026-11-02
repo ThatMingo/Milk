@@ -46,7 +46,10 @@ extension SandboxHostEffects {
         try FileManager.default.createDirectory(at:work,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         let framework=helper.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Frameworks")
         let extra=[SandboxProfileBuilder.Root(url:helper,subtree:false),.init(url:helper.deletingLastPathComponent().appendingPathComponent("libMilkExtensionKit.dylib"),subtree:false),.init(url:framework),.init(url:invocation.request.packageURL)]
-        var sbpl=try profile(scope,subject:.extensionWorker,extra:extra)
+        let closure=context().configuration.enabled ? try SandboxExecutableClosure.inspect(helper) : nil
+        let system=tool.requiredCapabilities.contains(.shell) ? SandboxProfileBuilder.systemReadRoots : SandboxProfileBuilder.probeReadRoots
+        let ordinary=try profile(scope,subject:.extensionWorker,extra:extra,purposeDependencies:system+(closure?.roots ?? []))
+        var sbpl=try SandboxProfileBuilder.protectingCode(ordinary,roots:extra+(closure?.roots ?? []))
         if sbpl != nil {
             // Narrow worker-only service boundary, independent of trusted native UI.
             sbpl! += "\n(deny appleevent-send)\n(deny mach-lookup (regex #\"^(com\\\\.apple\\\\.(securityd|secd|pbs|pasteboard)|com\\\\.apple\\\\.cfprefsd\\\\.agent))\"))\n"
@@ -56,6 +59,7 @@ extension SandboxHostEffects {
         let env=SandboxEnvironment.execution(home:work,temporary:work,support:[])
         let command=SandboxProfileBuilder.command(executable:helper,arguments:[],profile:sbpl)
         let stdin=Pipe(), stdout=Pipe(), stderr=Pipe()
+        guard closure?.revalidated() != false else { throw AgentError.message("Extension worker closure changed before launch.") }
         let process=try SandboxProcess(executable:command.0,arguments:command.1,directory:activation.workspace,environment:env,input:stdin,output:stdout,errors:stderr)
         processes[scope.id,default:[]].append(process)
         let errors=Task.detached { var bytes=Data(); while true { let chunk=process.read(stderr.fileHandleForReading); if chunk.isEmpty { break }; if bytes.count < 65536 { bytes.append(chunk) } }; return bytes }

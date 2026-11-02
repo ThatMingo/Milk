@@ -11,6 +11,18 @@ spec.loader.exec_module(packaging)
 
 
 class ReleasePackagingTests(unittest.TestCase):
+    def test_private_build_paths_rejected_without_confusing_synthetic_verifier_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = pathlib.Path(directory) / 'Milk.app'
+            binary = app / 'Contents/MacOS/Milk'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'disposable-verification-value\0updated-disposable-value')
+            packaging.validate_private_paths(app, ['/private-build-home'])
+            for suffix in ['/repo/Sources/Milk.swift', '/repo/.build/Milk.swift.o']:
+                binary.write_bytes(('/private-build-home' + suffix).encode())
+                with self.assertRaises(ValueError):
+                    packaging.validate_private_paths(app, ['/private-build-home'])
+
     def test_manifest_requires_matching_canonical_values_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = pathlib.Path(directory) / 'Milk-0.2.3-macOS-arm64.zip'

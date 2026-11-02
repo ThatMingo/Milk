@@ -365,7 +365,9 @@ Rule:
 
 ## 10. Credentials and child environment isolation
 
-Keep the Data Protection Keychain storage introduced by the API Keychain phase.
+Use ordinary macOS login/file-based Keychain through Security.framework SecItem APIs
+as Milk’s primary and only persistent secret store. The approved 2026-11-02 decision
+supersedes the earlier provisioned Data Protection Keychain design.
 Milk Local/oMLX credentials remain in Keychain at rest, with no plaintext fallback
 and no real key in Codable settings, logs, diagnostics, source, `models.json`, or
 command-line arguments. Expected use is a non-admin Local/oMLX inference API key.
@@ -374,7 +376,11 @@ The sandbox phase does **not** require a credential broker/proxy. Milk may retai
 today's scoped Keychain read and `MILK_PI_LOCAL_KEY` injection into the Pi runtime.
 Preserve Local discovery/inference, None authentication, replacement/revocation,
 profile/endpoint scoping, and protection against stale Pi auth.json precedence.
-Do not weaken storage to work around ad-hoc/provisioned signing constraints.
+Ad-hoc/private builds must support credential storage without Apple Developer
+Program membership, Developer ID, provisioning or notarization. Keep normal Keychain
+ACLs intact; report changed-build authorization behavior rather than bypassing macOS
+security. Developer ID/notarization remain optional distribution enhancements.
+An unavailable/denied Keychain fails actionably with no plaintext/config fallback.
 
 ### Explicit Pi credential-trusted runtime domain (approved L2 adjustment)
 
@@ -822,7 +828,7 @@ Record what was actually verified. Do not claim live security properties from un
 While this design is active:
 
 - this file is authoritative for the approved target behavior;
-- `docs/exec-plans/active/SANDBOX_IMPLEMENTATION.md` tracks the living implementation plan and discoveries.
+- `docs/exec-plans/completed/SANDBOX_IMPLEMENTATION.md` records completed implementation, discoveries and measured acceptance.
 
 When the phase ships:
 
@@ -866,3 +872,25 @@ permissions and the existing permission UX. No typed-only restriction, FSKit,
 Endpoint Security, filesystem extension, VM, restricted entitlement or replacement
 execution architecture is adopted. All other approved product/security decisions
 remain intact. This document describes the target; no production rollout is implied.
+
+
+## 27. Approved login-Keychain/private distribution revision (2026-11-02)
+
+The user explicitly replaces the Data Protection backend with ordinary macOS
+login/file-based Keychain via SecItem. Only storage changes: credential identity,
+PiProviderProfileIdentity, Local normalization, environment indirection, stale-auth
+header precedence, None/replacement/deletion, diagnostics and all Sandbox/credential
+execution domains remain intact. No broker, shared access group, user-presence/Touch ID
+policy, plaintext fallback or weaker filesystem boundary is introduced.
+
+Use default ordinary item ACLs. Normal access should be noninteractive where supported;
+explicit user-requested recovery may invoke macOS authorization after an ad-hoc rebuild.
+Measure save/read/update/existence/delete, launch/rebuild persistence and prompt/ACL
+behavior rather than assuming DP semantics. Older entries remain explicit scoped
+recovery sources; do not read them automatically or delete originals as a side effect.
+
+Developer ID, provisioning, notarization/stapling and App Store distribution are
+optional improvements, not credential-storage or Sandbox technical-completion gates.
+Private users may choose macOS Open Anyway themselves; Milk must not bypass Gatekeeper
+or remove quarantine. Actual normal-Keychain and regression/artifact gates still apply.
+L1/L2, controlled Git, bounded snapshots and the Preview provider seam are unchanged.

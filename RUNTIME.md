@@ -31,7 +31,7 @@ lazy: restoring a workspace or browsing retained history does not launch Pi,
 install a runtime, probe an executable or start provider polling. Agent work and
 explicit verification/provider actions can start the relevant owned processes.
 
-## Sandbox execution (Phases 3–5)
+## Sandbox execution
 
 Milk-owned policy/settings/scope types now sit above the adapter layer. Settings →
 Sandbox persists global/project policy separately from Ask/Autonomous. Temporary
@@ -83,11 +83,14 @@ L1 limitation, including for jobs/workers.
 User Terminal, Editor, GitService and user-started Preview remain trusted. Sandbox
 OFF removes Milk filesystem enforcement, retaining separate native worker execution,
 typed host-effect requests and independently sanitized Milk worker/job environments.
-Broad purpose hardening and rollout remain Phase 6 work, not current release acceptance.
+Current executable purposes also cover version/compatibility checks, package commands
+and installation candidates. Sandbox defaults ON; persisted explicit OFF is retained.
+See [Sandbox final acceptance](docs/SANDBOX_ACCEPTANCE.md) for current-host evidence
+and optional distribution/coverage limitations.
 See [host-effect boundaries](docs/SANDBOX_HOST_EFFECTS.md) for exact recognition,
 worker IPC and ownership details.
 
-## Purpose-specific environments (Phase 4)
+## Purpose-specific environments
 
 `PiLaunchResolver` resolves the selected HOME and Pi data profile before filtering
 host input. `PiEnvironment` preserves documented Pi 1.4 provider variables, locale,
@@ -109,7 +112,9 @@ behavior while environment hardening still applies.
 Version and compatibility helpers use private HOME/TMP/profile state and no provider
 credentials or authenticated proxies. Their explicit `probeEnvironmentOverrides`
 are separate from runtime overrides; a runtime custom provider token is not reused
-as a helper input. Broader package/install filesystem purpose coverage remains later.
+as a helper input. Package CLI uses the same independent environment construction,
+with only its explicit selected target profile writable and its local source read-only.
+See [purpose inventory](docs/SANDBOX_PURPOSES.md) for the complete mapping.
 
 `SandboxEnvironment` is the reusable agent-agnostic Milk worker boundary: it accepts
 host work/toolchain inputs, not an ambient dictionary. Pi's sibling entry adds only
@@ -124,7 +129,7 @@ process callbacks cannot enter a new credential scope. This is diagnostic hygien
 not protection against trusted Pi code deliberately disclosing a key through data
 or Pi's own files. Native Pi auth/OAuth ownership is unchanged; auth files are not
 copied into Milk's private Preview inspection profile. Local Preview remains covered;
-Existing-profile-only configured-provider Preview remains the recorded later seam.
+Existing-profile-only configured-provider Preview remains an explicit limitation.
 
 ## Installation and compatibility
 
@@ -150,6 +155,33 @@ It checks required native RPC reply shapes and the Milk integration handshake,
 then awaits shutdown before removing probe storage. It does not send a model
 prompt or use a personal session. Live startup also validates the required
 protocol and integration before publishing readiness.
+
+Every pre-RPC version and compatibility execution has a `SandboxPurposePlan`:
+private HOME/TMP/cache/profile/workspace, a secret-free environment, and a filesystem
+ceiling intersected with normal policy. Compatibility and installation candidates
+never receive the selected user's provider/auth files. No missing task-local context
+can imply unrestricted execution: standalone entry points capture current Sandbox
+settings, and RPC launch requires explicit ON/OFF classification. ON with a missing
+profile rejects before spawn. Unknown utility purposes reject.
+
+`SandboxExecutableClosure` validates regular-file identities, arm64 Mach-O load
+commands/libraries/rpaths, supported shebang chains and selected installation/module
+roots without running `which`, `otool` or another candidate. `env <interpreter>` uses
+only selected installation and system roots. Known Apple developer shims resolve to
+the exact selected toolchain executable, preserving script argv while avoiding a
+hidden xcrun/Xcode cache launch. Ambient PATH never selects a probe interpreter.
+Declared symlink objects and ancestor metadata are admitted literally, not as broad
+Homebrew/home grants. Homebrew libcrypto's named configuration/certificate inputs
+are explicit dependencies. Unsupported/malformed closure fails ON with no retry.
+Opaque wrappers needing undeclared code/config are unsupported ON; OFF stays an
+explicit compatibility choice, never an automatic fallback.
+
+Local package registration/removal uses the selected Pi CLI and actual source/target,
+private temporary state and a fresh contract. Source inputs are read-only even inside
+a writable project; target profile writes still obey Protected/inactive/Read Only
+rules. Pre-existing source/target hard-link or crossing symlink ambiguities reject
+before execution. No extra privilege follows from HOME, PATH, DEVELOPER_DIR or
+PI_PACKAGE_DIR values. Code/runtime dependencies are read-only.
 
 ### Managed revisions
 
@@ -179,6 +211,15 @@ managed integrity checks add startup I/O; that cost remains unbenchmarked.
 probe, utility-command and installation-transaction leases. Ownership begins
 before asynchronous startup and continues while work is closing. Each lease
 carries activation identity and relevant writer/installation associations.
+
+Security-relevant Sandbox settings close old admission/grants, stop auxiliary
+processes and jobs, and drain runtime leases. Previously connected conversations
+then reconnect through the coordinator's drain barrier with fresh profiles; metadata
+browsing stays lazy. Managed jobs are stopped rather than revived under old grants.
+Timeout-only edits do not restart runtimes/probes. ON Preview inspection has private
+HOME/profile/TMP and minimal read-tool dependencies. OFF Preview retains the explicit
+unenforced configured-provider compatibility path; the ON Existing-profile-only
+configured-provider inspection seam remains documented for Phase 7.
 
 Restart, configuration/workspace handoff and matching session-file mutations
 invalidate old work and await the required writers before replacement. Stale
@@ -323,8 +364,9 @@ source snapshot, not app redistribution. Final acceptance records successful
 managed and external Pi execution on the development host and 156/156 tests;
 it does not establish clean-machine trust or complete GUI acceptance.
 
-Developer ID signing, notarization, stapling and clean-machine acceptance remain
-release gates. Bun/native matching-source, reconstruction, relinking, provenance
+Milk supports ad-hoc private distribution and ordinary login-Keychain credentials.
+Developer ID/notarization/stapling and broader clean-machine coverage are optional;
+Gatekeeper may require user-selected Open Anyway. Bun/native matching-source, reconstruction, relinking, provenance
 and downloaded-runtime distribution review remains unresolved. Hash verification,
 retained notices and keeping binaries outside Milk.app do not establish release
 clearance. See [third-party notices](ThirdPartyNotices/README.md) and
@@ -344,3 +386,10 @@ those files. Runtime deletion removes versions only, preserving profile data.
 This selects Pi's persistent profile; it is not an OS sandbox, and explicit
 project configuration/resources and trusted extension code retain Pi's normal
 behavior. No upstream Pi code is patched.
+
+
+Milk Local credentials now use ordinary macOS login/default file-based Keychain via
+SecItem in `dev.milk.agent-provider.login.v1`, with unchanged profile/provider/endpoint
+accounts. No provisioning or Data Protection selector is required. Normal access is
+noninteractive; explicit Recover Stored Key can authorize a changed ad-hoc build.
+Default ACLs are retained. See [Keychain backend and measured rebuild behavior](docs/API_KEYCHAIN.md).

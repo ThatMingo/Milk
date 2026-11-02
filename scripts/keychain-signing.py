@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive Milk's private app identity from a real provisioning profile."""
+"""Optional provisioned signing identity; ordinary Keychain storage does not need it."""
 import plistlib
 import sys
 from pathlib import Path
@@ -16,7 +16,7 @@ def entitlements(base, profile):
     result = dict(base)
     result['com.apple.application-identifier'] = app_id
     result['com.apple.developer.team-identifier'] = team
-    # No shared groups: SecItemAdd uses this app identifier as its private group.
+    # No shared groups. This optional identity does not select Milk's credential backend.
     return result
 
 
@@ -25,4 +25,4 @@ if __name__ == '__main__':
         base, profile, output = map(Path, sys.argv[1:])
         output.write_bytes(plistlib.dumps(entitlements(plistlib.loads(base.read_bytes()), plistlib.loads(profile.read_bytes()))))
     except (ValueError, KeyError, OSError) as error:
-        sys.exit('Milk Keychain signing configuration failed: ' + str(error))
+        sys.exit('Milk optional signing configuration failed: ' + str(error))

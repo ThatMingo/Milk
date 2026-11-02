@@ -1,10 +1,12 @@
-# Sandbox policy, settings and execution (Phase 3)
+# Sandbox policy, settings and execution
 
-Milk has a **Settings → Sandbox** page and real filesystem enforcement for the
-Phase 3-covered Pi runtime/tool paths when ON (the default). OFF preserves the
-original unenforced Ask/Autonomous behavior without Sandbox filesystem prompts.
-Later purpose hardening, broader provider acceptance, host-effect integration and acceptance
-remain incomplete; ON is not a claim of full sandbox rollout.
+Milk applies purpose-specific filesystem enforcement to current supported agent
+execution when Sandbox is ON (the default). Version/compatibility checks, package
+commands, installation candidates, conversation/Preview runtimes, sibling tools,
+native workers and managed jobs have explicit contracts. OFF is an explicit
+unenforced compatibility mode, independent of Ask/Autonomous. Final Phase 7
+acceptance and release certification remain separate; see the
+[acceptance report](SANDBOX_ACCEPTANCE.md) for measured scope and external gates.
 
 ## Ownership and persistence
 
@@ -55,7 +57,7 @@ or more-specific grant. Overlapping active/inactive or distinct inactive profile
 are ambiguous. Explicit Milk-owned writable build roots use normal purpose
 permissions below stronger rules; a cache label cannot bypass Project Read Only
 or protected/profile/folder restrictions. There is no Git escalation capability
-in this general filesystem grant API; real Git recognition remains later work.
+in this general filesystem grant API; controlled real Git uses the separate validated host-effect path.
 
 `SandboxScopeRoots` is supplied by trusted Milk with selected active/inactive
 profiles, project and purpose-specific build roots. Managed active profiles allow
@@ -73,6 +75,11 @@ Nonexistent targets resolve through the last existing ancestor. Cycles, inaccess
 components, invalid traversals and ambiguous roots deny. Component boundaries avoid
 prefix confusion. Explicit protected-file identities also recognize hard-linked
 aliases; this is not a global inventory of every hard link into protected folders.
+The kernel pathname profile cannot represent every name of a pre-existing hard-linked
+Protected file. ON profile construction rejects an explicitly Protected regular file
+with multiple hard links rather than exposing an alias through broader grants. Child
+creation of a new link to the denied file is separately tested and blocked. This is
+not an atomic link-count guarantee against independent concurrent host writers.
 
 `SandboxResolvedPath.revalidated()` detects replacement/alias changes against its
 observations. This is **not atomic authorization** or OS enforcement, and it does
@@ -144,8 +151,8 @@ revocation guarantee is claimed. New operations cannot reuse an expired Once gra
 Milk workers receive independently constructed HOME/TMPDIR/profile/PATH environments
 without Local/oMLX credentials. The Pi runtime and Pi-owned subprocesses/extensions
 retain their approved inference-key domain. Version probes on backend resolution use
-a separate read-only work/private-cache profile; broad maintenance/package/probe
-coverage remains later work. Preview inspection uses a private ephemeral profile,
+a separate private workspace/cache/profile purpose contract. Compatibility,
+package and installation candidate children have separate contracts too. Preview inspection uses a private ephemeral profile,
 project read-only rules and read tools; agent-suggested server startup retains a live host origin receipt and runs as an
 explicit sandbox-managed job. Existing-profile-only configured
 provider/auth discovery in the empty inspection profile still needs provider-parity
@@ -154,8 +161,9 @@ unchanged.
 
 Git metadata writes are denied in ordinary profiles. Controlled real-Git escalation,
 API 2 native agent workers and explicit managed jobs are described in
-[host-effect boundaries](SANDBOX_HOST_EFFECTS.md). Broader purpose coverage and
-rollout remain in the [active ExecPlan](exec-plans/active/SANDBOX_IMPLEMENTATION.md).
+[host-effect boundaries](SANDBOX_HOST_EFFECTS.md). The complete executable inventory
+is in [purpose contracts](SANDBOX_PURPOSES.md); final acceptance remains in the
+[completed implementation record](exec-plans/completed/SANDBOX_IMPLEMENTATION.md).
 
 ## Phase 4 environment admission
 
@@ -219,3 +227,53 @@ no claim that deliberate detached survivors lose inherited static access.
 The filesystem compiler admits the `/dev/null` device required by Git's read/write
 null descriptor only when its classification is ordinary outside-project dependency.
 An explicitly stronger root still wins. No writable `/dev` subtree was added.
+
+
+## All-purpose closure and default ON
+
+Every current agent-related execution is classified by the caller. Missing RPC
+profiles while ON, unclassified utility execution, missing interpreters and malformed
+or unresolved closure fail before an unrestricted child can start. No automatic OFF,
+runtime substitution or denied-command retry is used. Supported shebangs and Apple
+shims launch the same validated script/interpreter chain explicitly; a probe never
+searches ambient PATH. Helpers have private HOME/TMP/cache/profile state and no
+provider credential. Selected runtime/module roots and named configuration inputs
+are explicit read-only dependencies, with literal alias metadata where required.
+An environment path value by itself grants no filesystem access.
+
+Purpose ceilings intersect normal policy, including persistent grants and stronger
+nested roots. Probes/candidates can write only their private storage; package CLI can
+also write its explicit selected profile, and can only read the input source. Source
+and writable-target inode/symlink contradictions reject before execution; alias
+inventory is bounded at 100,000 entries per tree. Input inspection is admission
+validation, not an atomic filesystem transaction against independent concurrent
+writers. No new process-lifetime guarantee is claimed.
+
+Security-relevant settings invalidate grants and stop/drain old owned processes.
+Previously connected conversations reconnect with new authority after the coordinator
+barrier. Jobs need fresh explicit starts. Timeout-only changes leave immutable
+profiles running. Default/missing configuration is ON; an existing explicit persisted
+OFF stays OFF. Corrupt/unsupported settings fail closed instead of selecting OFF.
+Runtime status labels distinguish ON and OFF (unenforced). No schema reset or user
+choice overwrite is part of rollout. See [purpose contracts](SANDBOX_PURPOSES.md).
+
+
+Real Xcode builds can require the macOS per-user `TemporaryItems` item-replacement
+folder even with private TMPDIR and project-scoped DerivedData/cache flags. Milk does
+not admit that shared folder automatically: a command may explicitly request it
+through the normal temporary folder approval flow. The acceptance build verifies
+that an Allow Once grant enables the build while unrelated outside writes remain
+denied and the grant expires for future admission. The folder can contain other
+applications' temporary data, so this is extra reviewed authority, not private cache
+redirection. Private-TMP-only Xcode builds are not claimed; Swift compilation with
+private module caches is independently covered. See [acceptance](SANDBOX_ACCEPTANCE.md).
+
+
+Milk's persistent provider store is now ordinary macOS login/file-based Keychain via
+SecItem, not provisioned Data Protection Keychain. Private/ad-hoc builds need no Apple
+membership/profile. This backend change adds no filesystem/environment permission:
+Pi keeps the approved key domain; separate Milk executors/jobs/probes/workers remain
+key-free. Default ACLs, scoped identity, noninteractive normal access, explicit native
+recovery and no plaintext fallback are documented in [API Keychain](API_KEYCHAIN.md).
+Optional Developer ID/notarization and unperformed live/multi-host/manual coverage
+are limitations, not by themselves Sandbox technical-completion gates.

@@ -7,14 +7,28 @@ if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]
 fi
 [[ $(uname -m) == arm64 ]] || { print -u2 "Milk targets Apple Silicon."; exit 1; }
 python3 scripts/app-version.py
-swift build --cache-path "$PWD/.build/cache" "$@"
+build_arguments=("$@")
+release_build=false
+previous_argument=""
+for argument in "$@"; do
+    if [[ "$previous_argument" == "--configuration" || "$previous_argument" == "-c" ]]; then
+        [[ "$argument" != "release" ]] || release_build=true
+    fi
+    previous_argument="$argument"
+done
+if $release_build; then
+    # Keep source/debug paths reproducible and avoid publishing the builder's home.
+    # Release-only checkout diagnostics resolve their fixture root from the explicit cwd.
+    build_arguments+=(-Xswiftc -file-prefix-map -Xswiftc "$PWD=." -Xswiftc -debug-prefix-map -Xswiftc "$PWD=." -Xcc "-ffile-prefix-map=$PWD=.")
+fi
+swift build --cache-path "$PWD/.build/cache" "${build_arguments[@]}"
 mkdir -p output
 staging=$(mktemp -d "$PWD/output/.Milk-build-XXXXXX")
 trap 'rm -rf "$staging"' EXIT
 app="$staging/Milk.app"
 resources="$app/Contents/Resources"
 mkdir -p "$app/Contents/MacOS" "$resources"
-binary_directory=$(swift build --show-bin-path "$@")
+binary_directory=$(swift build --show-bin-path "${build_arguments[@]}")
 cp "$binary_directory/Milk" "$app/Contents/MacOS/Milk"
 mkdir -p "$app/Contents/Helpers"
 cp "$binary_directory/MilkExtensionWorker" "$app/Contents/Helpers/"
@@ -33,6 +47,10 @@ cp Packages/MilkExtensionKit/Sources/MilkExtensionKit/*.swift "$resources/Extens
 # resources; Pi binaries, tools, assets and manifests are never staged.
 python3 scripts/stage-app-resources.py "$resources"
 identity="${CODESIGN_IDENTITY:--}"
+if $release_build; then
+    # Remove linker debug/OSO records, preserving runtime and exported SDK symbols.
+    strip -S "$app/Contents/MacOS/Milk" "$app/Contents/Helpers/MilkExtensionWorker" "$app/Contents/Frameworks/libMilkExtensionKit.dylib" "$resources/ExtensionSDK/libMilkExtensionKit.dylib"
+fi
 # Sign the shared SDK before sealing the application.
 codesign --force --options runtime --sign "$identity" "$app/Contents/Frameworks/libMilkExtensionKit.dylib"
 codesign --force --options runtime --sign "$identity" "$resources/ExtensionSDK/libMilkExtensionKit.dylib"
@@ -60,8 +78,6 @@ if [[ -n "${MILK_PROVISIONING_PROFILE:-}" ]]; then
     python3 scripts/keychain-signing.py "$entitlements" "$staging/profile.plist" "$staging/entitlements.plist"
     entitlements="$staging/entitlements.plist"
     cp "$MILK_PROVISIONING_PROFILE" "$app/Contents/embedded.provisionprofile"
-else
-    print -u2 "Milk: no provisioning profile; API-key persistence requires a provisioned build (docs/API_KEYCHAIN.md)."
 fi
 codesign --force --options runtime --identifier dev.milk.extension-worker --entitlements "$PWD/scripts/milk-worker.entitlements" --sign "$identity" "$app/Contents/Helpers/MilkExtensionWorker"
 codesign --force --options runtime --entitlements "$entitlements" --sign "$identity" "$app"

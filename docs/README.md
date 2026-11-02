@@ -7,8 +7,10 @@ Start with the README for an overview and Developer setup to build from source.
 - [Milk](../README.md): current features, agents, requirements and release status.
 - [Developer setup](DEVELOPMENT.md): build/run commands, test requirements and
   optional upstream Pi fixtures.
-- [Sandbox policy and settings](SANDBOX_POLICY.md): current Phase 3/4 execution, environments, configuration,
-  policy decisions and memory-only grants; execution enforcement remains pending.
+- [Sandbox policy and settings](SANDBOX_POLICY.md): current enforced execution, purpose-specific environments,
+  configuration, policy precedence and memory-only grants.
+- [Sandbox final acceptance](SANDBOX_ACCEPTANCE.md): current automated/runtime evidence,
+  accepted limitations, measured ordinary-Keychain rebuild/recovery and optional distribution coverage.
 - [Runtime architecture](../RUNTIME.md): compiled adapter, installation selection,
   lifecycle, sessions and code/data ownership.
 - [Provider/profile final acceptance](PROVIDER_FINAL_ACCEPTANCE.md): final clean
@@ -17,6 +19,8 @@ Start with the README for an overview and Developer setup to build from source.
   integration, switching/retention, Settings wiring and architecture audit.
 - [Local provider Phase 2](LOCAL_PROVIDER_PHASE_2.md): omitted model limits and
   true no-auth transport through pinned Pi.
+- [Local API Keychain](API_KEYCHAIN.md): ordinary login/file-based backend, default ACLs,
+  explicit recovery, private builds and actual-app verification.
 - [Pi profile ownership](PI_PROFILE_OWNERSHIP.md): managed isolation versus Existing
   Pi setup, retention and focused verification.
 - [Agent provider settings](AGENT_PROVIDER_SETTINGS.md): current ownership, Pi Local
@@ -37,11 +41,14 @@ Start with the README for an overview and Developer setup to build from source.
 - [Sandbox host effects](SANDBOX_HOST_EFFECTS.md): real-Git escalation, API 2 agent
   workers, Preview origin receipts and explicit managed jobs.
 
+- [Executable purpose contracts](SANDBOX_PURPOSES.md): complete launch inventory,
+  private storage, interpreter/module closure, package/candidate isolation and rollout.
+
 ## Architecture and planning
 
 - [Sandbox architecture](design-docs/SANDBOX_ARCHITECTURE.md): approved target behavior.
-- [Sandbox ExecPlan](exec-plans/active/SANDBOX_IMPLEMENTATION.md): implementation phases,
-  current validation and deferred execution work.
+- [Sandbox ExecPlan](exec-plans/completed/SANDBOX_IMPLEMENTATION.md): completed implementation,
+  final technical acceptance, decisions and optional deferred coverage.
 
 - [Agent architecture handoff](MILK_AGENT_ARCHITECTURE.md): original design intent,
   including targets beyond the implemented product. Current runtime behavior is

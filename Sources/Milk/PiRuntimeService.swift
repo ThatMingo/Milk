@@ -185,6 +185,7 @@ private final class PiChild: @unchecked Sendable {
     private var deadlines: [String: Task<Void, Never>] = [:]
     private let writer = DispatchQueue(label: "dev.milk.pi.stdin")
     var isRunning: Bool { process?.isRunning == true && !closing }
+    var processIdentifier: Int32? { isRunning ? process?.processIdentifier : nil }
 
     func launch(executable: URL, arguments: [String], workspace: URL, environment: [String: String], sandboxProfile: String? = nil, redactedEnvironmentKeys: Set<String> = [], sandboxEnabled: Bool) throws {
         guard !sandboxEnabled || sandboxProfile != nil else { throw AgentError.message("Sandbox ON requires an explicit RPC purpose profile. No unrestricted fallback is available.") }

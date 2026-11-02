@@ -241,6 +241,51 @@ final class SandboxExecutionTests: XCTestCase {
         XCTAssertTrue(result["content"].text.contains("swift-clean"),result.encodedString)
         XCTAssertTrue(result["content"].text.contains("Xcode"),result.encodedString)
     }
+    @MainActor func testXcodebuildActualBuildWithExplicitTemporaryItemsGrantKeepsBoundary() async throws {
+        let root=try fixture(), (executor,grants,_)=try await execution(root,mode:.autonomous)
+        let project=root.appendingPathComponent("project"), xcode=project.appendingPathComponent("Probe.xcodeproj")
+        try FileManager.default.createDirectory(at:xcode,withIntermediateDirectories:true)
+        let phase="""
+        test -z "${MILK_PI_LOCAL_KEY:-}${OPENAI_API_KEY:-}" || exit 7
+        printf xcode-build-clean > "$SRCROOT/xcode-result"
+        if printf forbidden > '\(root.appendingPathComponent("outside/xcode-forbidden").path)'; then
+          echo XCODE-SANDBOX-BYPASS; exit 9
+        fi
+        echo xcode-boundary-clean
+        """
+        let quoted=JSONValue.string(phase).encodedString
+        let pbx="""
+        { archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+          A00000000000000000000001 = { isa = PBXProject; buildConfigurationList = A00000000000000000000004; compatibilityVersion = "Xcode 14.0"; mainGroup = A00000000000000000000003; projectDirPath = ""; targets = (A00000000000000000000002); };
+          A00000000000000000000002 = { isa = PBXAggregateTarget; buildConfigurationList = A00000000000000000000004; buildPhases = (A00000000000000000000006); dependencies = (); name = Probe; productName = Probe; };
+          A00000000000000000000003 = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
+          A00000000000000000000004 = { isa = XCConfigurationList; buildConfigurations = (A00000000000000000000005); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+          A00000000000000000000005 = { isa = XCBuildConfiguration; buildSettings = { MACOSX_DEPLOYMENT_TARGET = 26.0; ENABLE_USER_SCRIPT_SANDBOXING = NO; }; name = Debug; };
+          A00000000000000000000006 = { isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = (); outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = \(quoted); };
+        }; rootObject = A00000000000000000000001; }
+        """
+        try Data(pbx.utf8).write(to:xcode.appendingPathComponent("project.pbxproj"))
+        let command="CFFIXED_USER_HOME=\"$HOME\" /usr/bin/xcodebuild -project Probe.xcodeproj -scheme Probe -configuration Debug -derivedDataPath \"$PWD/.xcode-derived\" -packageCachePath \"$PWD/.xcode-packages\" CODE_SIGNING_ALLOWED=NO CLANG_MODULE_CACHE_PATH=\"$PWD/.xcode-modules\" build"
+        var result=try await execute(executor,tool:"bash",args:.object(["command":.string(command),"timeout":.number(30)]))
+        if result["isError"].bool {
+            // macOS item-replacement APIs use the per-user TemporaryItems directory
+            // despite private HOME/TMPDIR/DerivedData. It is never admitted by default.
+            // Exercise the existing explicit Once-folder flow, not a wider base profile.
+            XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("outside/xcode-forbidden").path))
+            let selected=FileManager.default.temporaryDirectory.appendingPathComponent("TemporaryItems")
+            try FileManager.default.createDirectory(at:selected,withIntermediateDirectories:true)
+            let temporaryItems=try SandboxPathResolver().resolve(selected).canonicalURL
+            var prompts=0
+            executor.event={ event in if case .approval(let request)=event { prompts += 1; XCTAssertEqual(request.action,temporaryItems.path); try? executor.respond(request,response:.value("Allow Once")) } }
+            result=try await execute(executor,tool:"bash",args:.object(["command":.string(command),"timeout":.number(30),"sandboxFolders":.array([.object(["path":.string(temporaryItems.path),"access":.string("readWrite")])])]))
+            XCTAssertEqual(prompts,1)
+        }
+        guard !result["isError"].bool else { XCTFail(result.encodedString); return }
+        XCTAssertTrue(result["content"].text.contains("xcode-boundary-clean"),result.encodedString)
+        XCTAssertEqual(try String(contentsOf:project.appendingPathComponent("xcode-result"),encoding:.utf8),"xcode-build-clean")
+        XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("outside/xcode-forbidden").path))
+        XCTAssertTrue(grants.grants.isEmpty,"The build's Once permission must expire for future admission")
+    }
     @MainActor func testDetachedSurvivorRetainsOldGrantButFreshOperationCannotReuseIt() async throws {
         let root = try fixture(), source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("SandboxPhase1/lifetime_probe.c")
         let probe = root.appendingPathComponent("project/probe"), clang = Process()

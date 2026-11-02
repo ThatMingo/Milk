@@ -90,14 +90,17 @@ import MilkExtensionHost
         return result
     }
     private var dependencies: [SandboxProfileBuilder.Root] {
-        var roots = SandboxProfileBuilder.systemReadRoots
+        var roots = purpose == .previewInspection ? SandboxProfileBuilder.probeReadRoots : SandboxProfileBuilder.systemReadRoots
         roots += [location.executable, location.integration, location.integration.deletingLastPathComponent().appendingPathComponent("MilkSandboxBridge.ts"), location.integration.deletingLastPathComponent().appendingPathComponent("MilkSandboxWorker.ts")].map { .init(url: $0, subtree: false) }
         if let closure=location.executableClosure { roots += closure.roots }
         roots += PiRuntimeService.supportRoots(executable:location.executable)
         roots += location.supportPaths.filter { $0.resolvingSymlinksInPath().path != FileManager.default.homeDirectoryForCurrentUser.path }.map { .init(url:$0,subtree:false) }
         return roots
     }
-    func runtimeProfile() throws -> String? { try SandboxProfileBuilder().make(context: context(.agentRuntime), dependencies: dependencies) }
+    func runtimeProfile() throws -> String? {
+        let profile=try SandboxProfileBuilder().make(context:context(.agentRuntime),dependencies:dependencies)
+        return try SandboxProfileBuilder.protectingCode(profile,roots:(location.executableClosure?.roots ?? [])+PiRuntimeService.supportRoots(executable:location.executable))
+    }
     func updateMode(_ value: ComposerPermissionMode) { mode = value }
     func handle(_ request: JSONValue) async throws -> JSONValue {
         guard !closed else { throw AgentError.message("Sandbox executor is unavailable for this activation.") }
@@ -236,8 +239,9 @@ import MilkExtensionHost
             var c = context(); c.roots.writableBuildRoots.append(work)
             let usable = grants.grants.filter { $0.activation == activation && ($0.operationID == nil || $0.operationID == job.scope.id) }
             job.usedGrants = Set(usable.map(\.id))
-            let profile = try SandboxProfileBuilder().make(context: c, dependencies: dependencies, grants: usable,
+            let ordinaryProfile = try SandboxProfileBuilder().make(context: c, dependencies: dependencies, grants: usable,
                 admitting: { self.grants.admitting($0, operation: job.scope) })
+            let profile=try SandboxProfileBuilder.protectingCode(ordinaryProfile,roots:(location.executableClosure?.roots ?? [])+PiRuntimeService.supportRoots(executable:location.executable))
             let env = PiEnvironment.executor(work:work,support:location.supportPaths,toolchain:location.toolchain)
             var ready = false
             worker.onRecord = { [weak self, weak job] record in
@@ -252,7 +256,9 @@ import MilkExtensionHost
             }
             worker.onFailure = { [weak job] error in job?.result?.resume(throwing: AgentError.message(error)); job?.result = nil }
             guard location.executableClosure?.revalidated() != false else { throw AgentError.message("Pi worker executable closure changed.") }
-            try worker.launch(executable: location.executable, arguments: ["--mode", "rpc", "--offline", "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "-e", script.path], workspace: activation.workspace, environment: env, sandboxProfile: profile,sandboxEnabled:enabled)
+            let workerArguments=["--mode", "rpc", "--offline", "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "-e", script.path]
+            let command=location.executableClosure?.command(workerArguments) ?? (location.executable,workerArguments)
+            try worker.launch(executable:command.0,arguments:command.1,workspace:activation.workspace,environment:env,sandboxProfile:profile,sandboxEnabled:enabled)
             let deadline = Date().addingTimeInterval(10)
             while !ready { try Task.checkCancellation(); guard Date() < deadline, worker.isRunning else { throw AgentError.message("Sandbox worker did not become ready. Check its runtime dependencies. " + worker.stderr) }; try await Task.sleep(nanoseconds: 20_000_000) }
             guard case .object(var arguments) = job.args else { throw SandboxPathError.invalidPath }

@@ -160,9 +160,9 @@ final class PiProviderSettingsTests: XCTestCase {
         XCTAssertTrue(credentials.queries.isEmpty, "Loading settings must not query any Keychain")
         XCTAssertTrue(try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"))
         XCTAssertEqual(try AgentProviderCredentials.token(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"), "legacy-secret")
-        let legacyReads = credentials.queries.filter { $0[kSecUseDataProtectionKeychain as String] as? Bool == false }.count
+        let legacyReads = credentials.queries.filter { $0[kSecAttrService as String] as? String != AgentProviderCredentials.service }.count
         XCTAssertTrue(try AgentProviderCredentials.importLegacy(agent: .pi, provider: "local", endpoint: endpoint, profile: "chosen-profile"))
-        XCTAssertEqual(credentials.queries.filter { $0[kSecUseDataProtectionKeychain as String] as? Bool == false }.count, legacyReads)
+        XCTAssertEqual(credentials.queries.filter { $0[kSecAttrService as String] as? String != AgentProviderCredentials.service }.count, legacyReads)
         let saved = defaults.data(forKey: PiProviderConfiguration.key)
         XCTAssertEqual(try PiProviderConfiguration.load(defaults), value)
         XCTAssertEqual(defaults.data(forKey: PiProviderConfiguration.key), saved)

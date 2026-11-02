@@ -83,7 +83,7 @@ import UniformTypeIdentifiers
                 let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Inspection-" + UUID().uuidString)
                 try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 let directory = try SandboxPathResolver().resolve(temporary).canonicalURL; discoveryDirectory = directory
-                var env = selected.environment; env["PI_CODING_AGENT_DIR"] = directory.path
+                var env = selected.environment; env["PI_CODING_AGENT_DIR"] = directory.path; env["HOME"] = directory.path
                 location = .init(installation: selected.installation, executable: selected.executable, version: selected.version, integration: selected.integration,
                     supportPaths: selected.supportPaths, environment: env, dataProfile: .init(directory: directory, ownership: .ephemeralMilk), compatibility: selected.compatibility, environmentOverrides: selected.environmentOverrides, toolchain: selected.toolchain,executableClosure:selected.executableClosure)
             } else { location = selected }
@@ -137,7 +137,8 @@ import UniformTypeIdentifiers
                 self.onEvent?(.failure(text))
             }
             guard location.executableClosure?.revalidated() != false else { throw AgentError.message("Pi executable closure changed before startup.") }
-            try client.launch(executable: location.executable, arguments: arguments, workspace: workspace, environment: environment, sandboxProfile: sandboxProfile, redactedEnvironmentKeys: PiEnvironment.referencedVariables(profile:location.dataProfile.directory),sandboxEnabled:sandboxSettings.configuration.enabled)
+            let command=location.executableClosure?.command(arguments) ?? (location.executable,arguments)
+            try client.launch(executable:command.0,arguments:command.1, workspace: workspace, environment: environment, sandboxProfile: sandboxProfile, redactedEnvironmentKeys: PiEnvironment.referencedVariables(profile:location.dataProfile.directory),sandboxEnabled:sandboxSettings.configuration.enabled)
             if providerConfiguration.provider == .local, let selected = providerConfiguration.local.selectedModel {
                 _ = try await client.request("set_model", ["provider": .string(PiProviderSupport.providerID), "modelId": .string(selected)])
             }

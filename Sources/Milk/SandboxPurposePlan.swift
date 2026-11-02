@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Darwin
 
 /// A launch contract intersects purpose ceilings with the normal policy compiler.
 /// Values come from Milk's selected runtime/source/target, never RPC environment dictionaries.
@@ -49,16 +50,12 @@ import Combine
         env["HOME"]=state.path; env["TMPDIR"]=state.path
         env["PI_CODING_AGENT_DIR"]=state.appendingPathComponent("agent").path
         var deps=SandboxProfileBuilder.probeReadRoots+closure.roots+runtimeDependencies
-        if let developer=toolchain.developerDirectory { deps.append(.init(url:developer)) }
         if let integration {
             for name in ["MilkPiIntegration.ts","MilkSandboxBridge.ts"] { deps.append(.init(url:integration.deletingLastPathComponent().appendingPathComponent(name),subtree:false)) }
         }
-        // Explicit host-supplied package runtime root is code, never credential-bearing profile state.
-        if let raw=env["PI_PACKAGE_DIR"] {
-            let path=try resolver.resolve(URL(fileURLWithPath:raw))
-            guard path.isDirectory, path.canonicalURL.path != "/", path.canonicalURL != fm.homeDirectoryForCurrentUser else { throw SandboxPathError.invalidPath }
-            deps.append(.init(url:path.canonicalURL))
-        }
+        // DEVELOPER_DIR/PI_PACKAGE_DIR are configuration, never generic filesystem grants.
+        // Interpreter inspection supplies actual toolchain roots; runtimeDependencies
+        // and the selected module/code graph supply package resources.
         var inactive=authority.inactiveProfiles
         var active: SandboxProfileRoot?
         var read=[SandboxProfileBuilder.Root(url:privateRoot)], write=[SandboxProfileBuilder.Root(url:privateRoot)]
@@ -75,6 +72,7 @@ import Combine
             env["PI_CODING_AGENT_DIR"]=output.canonicalURL.path
             deps.append(.init(url:input.canonicalURL,subtree:input.isDirectory))
             read.append(.init(url:output.canonicalURL)); write.append(.init(url:output.canonicalURL))
+            try SandboxInputBoundary.check(input:input,writable:[output,try resolver.resolve(privateRoot)])
             readOnly.append(.init(url:input.canonicalURL,subtree:input.isDirectory))
         } else if target != nil || packageSource != nil { throw AgentError.message("This purpose cannot receive persistent profile/source authority.") }
         read += deps
@@ -82,14 +80,19 @@ import Combine
         // A purpose ceiling does not turn unrelated persistent folder grants into launch dependencies.
         let actualProject=project ?? work
         let key=try resolver.resolve(actualProject).canonicalURL.path
-        let access=configuration.projects[key] ?? .init(access:project == nil ? .readOnly : .readWrite)
+        let access=configuration.projects[key] ?? .init()
         configuration.projects=[:]
         let context=SandboxPolicyContext(configuration:configuration,projectConfiguration:access,
             roots:.init(project:actualProject,activeProfile:active,inactiveProfiles:inactive,writableBuildRoots:[privateRoot]),interaction:.approval,subject:.agentRuntime)
         var profile=try SandboxProfileBuilder().make(context:context,dependencies:deps)
         if profile != nil {
             func predicates(_ roots: [SandboxProfileBuilder.Root]) throws -> String {
-                let values=try roots.map { item -> String in let path=try resolver.resolve(item.url); return "(\(item.subtree ? "subpath":"literal") \(try SandboxProfileBuilder.quote(path.canonicalURL.path)))" }
+                let values=try roots.flatMap { item -> [String] in
+                    let path=try resolver.resolve(item.url)
+                    let literal=try "(\(item.subtree ? "subpath":"literal") \(SandboxProfileBuilder.quote(path.canonicalURL.path)))"
+                    let aliases=try path.observations.filter { $0.identity.kind == S_IFLNK }.map { "(literal \(try SandboxProfileBuilder.quote($0.path)))" }
+                    return [literal]+aliases
+                }
                 return "(require-any \(values.joined(separator:" ")))"
             }
             // Ancestor metadata is already limited by the normal compiler. Data stays inside this purpose.
@@ -97,6 +100,7 @@ import Combine
             profile! += "\n(deny file-read-data file-read-xattr (require-not \(reads)))\n(deny file-write* (require-not (require-any \(writes) (literal \"/dev/null\"))))\n"
             for path in readOnly { profile! += "(deny file-write* \(try predicates([path])))\n" }
         }
+        profile=try SandboxProfileBuilder.protectingCode(profile,roots:closure.roots+runtimeDependencies)
         return .init(purpose:purpose,authority:authority,closure:closure,root:privateRoot,workspace:work,environment:env,profile:profile)
     }
 }

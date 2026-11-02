@@ -49,6 +49,7 @@ enum AgentWriterKey: Hashable {
     private(set) var owned: [UUID: AgentRuntimeLease] = [:]
     private var barrier: Set<UUID> = []
     private var accepting = true
+    var acceptsNewWork: Bool { accepting }
     private var maintenance: Set<AgentID> = []
     var onQuiescent: ((AgentID) -> Void)?
     func hasWork(for agent: AgentID) -> Bool { owned.values.contains { $0.activation.agentID == agent } }

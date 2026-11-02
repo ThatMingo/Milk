@@ -12,6 +12,19 @@ struct SandboxProfileBuilder {
               admitting: (SandboxPolicyDecision) -> SandboxPolicyDecision = { $0 }) throws -> String? {
         guard context.configurationIsValid else { throw SandboxPathError.invalidPath }
         if !context.configuration.enabled { return nil }
+        // Seatbelt pathname exclusions cannot follow pre-existing hard-link aliases.
+        // An explicit protected file with multiple names has no safe kernel profile
+        // here: reject admission rather than let a broader root expose another name.
+        for location in context.configuration.protectedLocations {
+            let path=try SandboxPathResolver().resolve(location.url)
+            guard path.finalIdentity?.kind == S_IFREG else { continue }
+            var info=stat()
+            guard lstat(path.canonicalURL.path,&info) == 0,
+                  SandboxFileIdentity(info) == path.finalIdentity else { throw SandboxPathError.changedDuringResolution }
+            guard info.st_nlink == 1 else {
+                throw AgentError.message("Sandbox cannot safely isolate a Protected file with multiple hard links. Remove the conflicting aliases or explicitly review this Protected Location in Sandbox Settings. No unrestricted retry was used.")
+            }
+        }
         var roots = [Root(url: URL(fileURLWithPath: "/")), Root(url: context.roots.project)]
         roots += context.configuration.protectedLocations.map { Root(url: $0.url) }
         roots += context.roots.inactiveProfiles.map { Root(url: $0.url) }
@@ -22,9 +35,23 @@ struct SandboxProfileBuilder {
         if context.subject != .agentRuntime { roots += grants.map { Root(url: $0.path.canonicalURL, subtree: $0.includesDescendants) } }
         let resolver = SandboxPathResolver()
         var entries: [String: (Root, SandboxResolvedPath)] = [:]
+        var declaredAliases: Set<String> = []
+        var aliasAncestors: Set<String> = []
         for root in roots {
             let resolved = try resolver.resolve(root.url)
             guard resolved.revalidated() else { throw SandboxPathError.changedDuringResolution }
+            let raw=SandboxPolicy().evaluate(resolved.canonicalURL,action:.read,context:context)
+            let dependency=raw.rule == .outsideProject && dependencies.contains { item in
+                guard let path=try? resolver.resolve(item.url) else { return false }
+                return item.subtree ? path.contains(resolved) : path.canonicalURL == resolved.canonicalURL
+            }
+            if admitting(raw).outcome == .allow || dependency {
+                for observation in resolved.observations where observation.identity.kind == S_IFLNK {
+                    declaredAliases.insert(observation.path)
+                    var parent=(observation.path as NSString).deletingLastPathComponent
+                    while !parent.isEmpty && parent != "/" { aliasAncestors.insert(parent); parent=(parent as NSString).deletingLastPathComponent }
+                }
+            }
             let key = resolved.canonicalURL.path
             if let old = entries[key] { entries[key] = (Root(url: old.0.url, subtree: old.0.subtree || root.subtree), resolved) }
             else { entries[key] = (root, resolved) }
@@ -60,12 +87,12 @@ struct SandboxProfileBuilder {
         }
         // Public root symlink objects are needed by xcode-select/developer shims.
         // These literals permit reading the links, never their destination subtrees.
-        let links = try ["/var", "/etc", "/tmp"].map { "(literal \(try Self.quote($0)))" }.joined(separator: " ")
+        let links = try Set(["/var", "/etc", "/tmp"]).union(declaredAliases).sorted().map { "(literal \(try Self.quote($0)))" }.joined(separator: " ")
         let read = "(require-any \(try allowed(.read)) \(links))"
         let nullRule=SandboxPolicy().evaluate(URL(fileURLWithPath:"/dev/null"),action:.write,context:context).rule
         let nullDevice = nullRule == .outsideProject ? "(literal \(try Self.quote("/dev/null")))" : ""
         let write = "(require-any \(try allowed(.write)) \(nullDevice))"
-        var ancestors: Set<String> = ["/"]
+        var ancestors: Set<String> = Set(["/"]).union(aliasAncestors)
         for entry in ordered where entry.1.canonicalURL.path != "/" {
             var parent = entry.1.canonicalURL.deletingLastPathComponent().path
             while !parent.isEmpty && parent != "/" { ancestors.insert(parent); parent = (parent as NSString).deletingLastPathComponent }
@@ -80,6 +107,14 @@ struct SandboxProfileBuilder {
             }
         }
         return sbpl
+    }
+    static func protectingCode(_ profile: String?, roots: [Root]) throws -> String? {
+        guard var value=profile else { return nil }
+        for root in roots {
+            let path=try SandboxPathResolver().resolve(root.url)
+            value += "(deny file-write* (\(root.subtree ? "subpath":"literal") \(try quote(path.canonicalURL.path))))\n"
+        }
+        return value
     }
     static var probeReadRoots: [Root] {
         ["/System","/usr/lib","/usr/share","/usr/bin","/usr/sbin","/bin","/sbin","/Library/Apple","/private/etc","/dev","/private/preboot","/private/var/select"].filter { FileManager.default.fileExists(atPath:$0) }.map { Root(url:URL(fileURLWithPath:$0)) } + [Root(url:URL(fileURLWithPath:"/"),subtree:false)] + ["/var","/tmp","/etc"].map { Root(url:URL(fileURLWithPath:$0),subtree:false) }

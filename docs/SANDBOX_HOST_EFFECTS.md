@@ -2,8 +2,8 @@
 
 Phase 5 implements these boundaries without changing trusted user Terminal, Editor,
 GitService, native extension UI/services or user-started Preview. This supplements
-[Sandbox policy](SANDBOX_POLICY.md) and the approved architecture; Phase 6 purpose
-closure, install coverage and rollout remain separate work.
+[Sandbox policy](SANDBOX_POLICY.md) and the approved architecture; [purpose contracts](SANDBOX_PURPOSES.md) cover the completed Phase 6 inventory.
+Phase 7 acceptance/release work remains separate.
 
 ## Controlled real Git
 
@@ -61,7 +61,8 @@ no native service facades. Direct worker subprocesses inherit its OS sandbox and
 sanitized environment. Capability declarations control worker network/process support
 and typed Git requests; filesystem authority is independently decided by Sandbox.
 Worker-specific AppleEvent and sensitive Mach-service denials supplement the separate
-signing identity. Broad service/purpose closure remains Phase 6.
+signing identity. Helper code/dependencies are validated and read-only. Broader non-filesystem service
+hardening is outside the current filesystem contract.
 
 The private stdio invocation is host-created, bounded newline JSON. Results/failures
 and serial Git requests are the supported frames; arbitrary service or generic launch
@@ -112,4 +113,12 @@ The accepted L1 limitation remains: deliberately detached descendants may surviv
 with their inherited static profile. Job completion/expiry ends future admission;
 it does not claim authoritative retroactive revocation or all-descendants-dead.
 The Pi credential domain (L2) is unchanged. No ES/FSKit/VM/restricted entitlement is
-introduced, and no release/notarization or default-ON rollout acceptance is implied.
+introduced. Default-ON purpose gates passed in Phase 6; current-host acceptance
+and external release/notarization limits are recorded in the acceptance report.
+
+
+See [Sandbox final acceptance](SANDBOX_ACCEPTANCE.md) for the current-host automated
+and packaged-runtime evidence and the exact unpassed release prerequisites. Synthetic
+provider tests do not establish live-account or multiple-host acceptance. Normal
+login-Keychain persistence/recovery is measured in the ad-hoc app; Developer ID/
+notarization are optional distribution improvements, not credential prerequisites.

@@ -6,6 +6,9 @@ import Combine
     private let client = PiRPCClient()
     private var temporary: URL?
     private var integrationReady = false
+    struct Execution { let pid: Int32; let workspace: URL; let profile: URL; let arguments: [String] }
+    private(set) var execution: Execution?
+    var handshakeReceived: Bool { integrationReady }
     private var observation: AnyCancellable?
 
     private func run(installation: AgentInstallationRecord, runtime: PiRuntimeService, owner: AgentLifecycleCoordinator) async throws -> AgentCompatibilityResult {
@@ -38,9 +41,11 @@ import Combine
                     try? self?.client.write(["type": .string("extension_ui_response"), "id": .string(id), "cancelled": .bool(true)])
                 }
             }
-            try client.launch(executable: launch.executable, arguments: ["--mode", "rpc", "--offline", "-e", launch.integration.path,
-                "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--tools", "read,grep,find,ls"],
+            let command=plan.closure.command(["--mode", "rpc", "--offline", "-e", launch.integration.path,
+                "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--tools", "read,grep,find,ls"])
+            try client.launch(executable:command.0,arguments:command.1,
                 workspace:plan.workspace,environment:environment,sandboxProfile:plan.profile,sandboxEnabled:authority.configuration.enabled)
+            if let pid=client.processIdentifier { execution = .init(pid:pid,workspace:plan.workspace,profile:URL(fileURLWithPath:environment["PI_CODING_AGENT_DIR"]!),arguments:command.1) }
             for command in ["get_state", "get_commands", "get_available_models", "get_available_thinking_levels", "get_messages"] {
                 let reply = try await client.request(command, timeout: 5)
                 try Task.checkCancellation()
@@ -64,10 +69,13 @@ import Combine
         try await inspect(installation: PiLaunchResolver(runtime: runtime).installation(for: mode), runtime: runtime, lifecycle: lifecycle)
     }
     static func inspect(installation: AgentInstallationRecord, runtime: PiRuntimeService, lifecycle: AgentLifecycleCoordinator) async throws -> AgentCompatibilityResult {
+        var source=ProcessInfo.processInfo.environment; source.merge(runtime.environmentOverrides) { _,value in value }
+        let selected=PiProfile.existing(environment:source)
+        let authority=SandboxLaunchAuthority.capture(profiles:[.init(id:"probe-source-profile",agentID:.pi,url:selected.directory,ownership:.existing)])
         var result: AgentCompatibilityResult?
         let lease = lifecycle.begin(activation: .init(agentID: .pi, workspace: runtime.resources, sessionID: -1), purpose: .compatibilityProbe,
                                     factory: { PiCompatibilityProbe() }) { resource, lease in
-            result = try await (resource as! PiCompatibilityProbe).run(installation: installation, runtime: runtime, owner: lifecycle)
+            result = try await SandboxLaunchAuthority.$current.withValue(authority) { try await (resource as! PiCompatibilityProbe).run(installation:installation,runtime:runtime,owner:lifecycle) }
             try lease.check()
         }
         return try await withTaskCancellationHandler(operation: {

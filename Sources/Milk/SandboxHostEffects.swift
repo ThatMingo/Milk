@@ -65,13 +65,13 @@ import Darwin
     func usable(_ scope: SandboxOperationScope, subject: SandboxSubject = .executor) -> [SandboxTemporaryGrant] {
         grants.grants.filter { $0.activation == activation && $0.subject == subject && ($0.operationID == nil || $0.operationID == scope.id) }
     }
-    func profile(_ scope: SandboxOperationScope, subject: SandboxSubject = .executor, extra: [SandboxProfileBuilder.Root] = [], readOnly: Bool = false) throws -> String? {
+    func profile(_ scope: SandboxOperationScope, subject: SandboxSubject = .executor, extra: [SandboxProfileBuilder.Root] = [], readOnly: Bool = false, purposeDependencies: [SandboxProfileBuilder.Root]? = nil) throws -> String? {
         try check(scope); var c = context(); c.subject=subject
         if readOnly { c.projectConfiguration.access = .readOnly }
         let used=usable(scope,subject:subject)
         let previous=scopeGrants[scope.id]?.1 ?? []
         scopeGrants[scope.id]=(scope,previous.union(used.map(\.id)))
-        return try SandboxProfileBuilder().make(context:c,dependencies:dependencies()+extra,grants:used,admitting:{ self.grants.admitting($0,operation:scope) })
+        return try SandboxProfileBuilder().make(context:c,dependencies:(purposeDependencies ?? dependencies())+extra,grants:used,admitting:{ self.grants.admitting($0,operation:scope) })
     }
     func run(executable: URL, arguments: [String], directory: URL, environment: [String:String], profile: String?, scope: SandboxOperationScope, input: Data? = nil) async throws -> Output {
         try check(scope)
