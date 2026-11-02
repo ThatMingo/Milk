@@ -43,7 +43,7 @@ final class NativeExtensionIntegrationTests: XCTestCase {
         try Data(#"{"endpoint":"http://127.0.0.1:1","interval":300,"showStatus":false}"#.utf8).write(to:settings)
         let defaults=UserDefaults(suiteName:"Milk.Native.Shell."+UUID().uuidString)!
         let shell=ShellState(persist:false,preferences:defaults,nativeExtensionManager:manager)
-        let review=try manager.inspect(v1); XCTAssertEqual(review.manifest.milkApi,"2")
+        let review=try manager.inspect(v1); XCTAssertEqual(review.manifest.milkApi,"1")
         try await manager.install(review,trusting:review.fingerprint,granting:review.capabilities)
         XCTAssertEqual(shell.sidebarDestinations.map { $0.title ?? $0.id },["Files","Sessions","Git","oMLX"])
         XCTAssertEqual(manager.registry.settings.count,1); XCTAssertEqual(manager.registry.commands.first?.item.name,"omlx"); XCTAssertEqual(manager.registry.status.count,1)

@@ -86,7 +86,7 @@ final class NativeExtensionTests: XCTestCase {
         XCTAssertEqual(try inspector.inspect(canonicalCopy).fingerprint,review.fingerprint,"Fingerprint must survive /var vs /private/var and package relocation")
         XCTAssertEqual(review.manifest.id,"dev.example.native"); XCTAssertEqual(review.fingerprint.count,64)
         XCTAssertTrue(review.signature.contains("Unsigned")); XCTAssertEqual(review.capabilities,[.network,.pi])
-        var bad=manifest(); bad.milkApi="1"
+        var bad=manifest(); bad.milkApi="2"
         XCTAssertThrowsError(try inspector.inspect(fixture(base,manifest:bad)))
         bad=manifest(); bad.minimumMilkVersion="99.0.0"
         XCTAssertThrowsError(try inspector.inspect(fixture(base,manifest:bad)))

@@ -105,7 +105,7 @@ The current host accepts arm64 Mach-O **MH_BUNDLE** executables for macOS 26+. I
   "id": "com.example.status",
   "name": "Status",
   "version": "1.0.0",
-  "milkApi": "2",
+  "milkApi": "1",
   "minimumMilkVersion": "0.7.0",
   "principalClass": "StatusExtension.StatusExtension",
   "executable": "MyExtension",
@@ -117,7 +117,7 @@ The current host accepts arm64 Mach-O **MH_BUNDLE** executables for macOS 26+. I
 }
 ```
 
-`id` must be a lowercase reverse-DNS identifier with at least three components. IDs are unique, and lowercase avoids filesystem case collisions. Versions use semantic version precedence, including prereleases. `milkApi` must be exactly `"2"`; an unsupported API or a minimum Milk version above the host is rejected before loading code.
+`id` must be a lowercase reverse-DNS identifier with at least three components. IDs are unique, and lowercase avoids filesystem case collisions. Versions use semantic version precedence, including prereleases. `milkApi` must be exactly `"1"`; an unsupported API or a minimum Milk version above the host is rejected before loading code.
 
 `author`, `description`, `icon`, and `update` are optional. `icon` is a contained resource path and must exist when declared. `update` reserves metadata for future tooling; Milk does not fetch it or infer online updates. The current list uses the native Milk Extension type icon.
 

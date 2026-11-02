@@ -2,7 +2,7 @@
   "id": "dev.milk.example.omlx-status",
   "name": "oMLX Status Example",
   "version": "1.0.0",
-  "milkApi": "2",
+  "milkApi": "1",
   "minimumMilkVersion": "0.7.0",
   "principalClass": "OMLXStatusExample.OMLXStatusExample",
   "executable": "OMLXStatusExample",

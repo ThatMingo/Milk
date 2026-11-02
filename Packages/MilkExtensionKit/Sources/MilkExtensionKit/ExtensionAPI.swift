@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Native UI is trusted/in-process. Agent code uses the separate extension worker.
-public enum MilkExtensionAPI { public static let version = "2" }
+public enum MilkExtensionAPI { public static let version = "1" }
 
 /// Supported host permissions. Native code itself has Milk's process privileges.
 public enum ExtensionCapability: String, Codable, CaseIterable, Hashable {
