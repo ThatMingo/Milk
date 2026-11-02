@@ -217,9 +217,10 @@ final class AgentLifecycleTests: XCTestCase {
         let unrelated = Process(); unrelated.executableURL = URL(fileURLWithPath: "/bin/sleep"); unrelated.arguments = ["60"]
         try unrelated.run()
         defer { unrelated.terminate(); unrelated.waitUntilExit() }
-        let pidFile = root.appendingPathComponent("utility.pid")
-        let script = "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); open('utility.pid','w').write(str(os.getpid())); time.sleep(60)"
-        let operation = Task { try await PiUtilityProcess.execute(executable: URL(fileURLWithPath: "/usr/bin/python3"), arguments: ["-u", "-c", script], directory: root, timeout: 8, purpose: .versionProbe, lifecycle: owner) }
+        let plan=try SandboxPurposePlan.make(purpose:.versionProbe,executable:URL(fileURLWithPath:"/usr/bin/python3"),authority:SandboxLaunchAuthority.capture(),root:root.appendingPathComponent("utility-private"))
+        let pidFile=URL(fileURLWithPath:plan.environment["HOME"]!).appendingPathComponent("utility.pid")
+        let script = "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); open(os.environ['HOME']+'/utility.pid','w').write(str(os.getpid())); time.sleep(60)"
+        let operation = Task { try await PiUtilityProcess.execute(executable: URL(fileURLWithPath: "/usr/bin/python3"), arguments: ["-u", "-c", script], directory: root, timeout: 8, purpose: .versionProbe, lifecycle: owner,plan:plan) }
         try await until("utility launched") { (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap(Int32.init) != nil }
         let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile, encoding: .utf8)))
         XCTAssertEqual(owner.owned.values.first?.purpose, .versionProbe)
@@ -233,4 +234,25 @@ final class AgentLifecycleTests: XCTestCase {
         } catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertTrue(owner.owned.isEmpty)
     }
+    @MainActor func testSandboxPolicyChangeDrainsThenRelaunchesWhileTimeoutKeepsRuntime() async throws {
+        let (agent,adapter,root)=try fixture()
+        adapter.holdNextExit=true
+        agent.connectForDiscovery()
+        try await until("initial ready") { adapter.backends.count == 1 && adapter.backends[0].enteredStart }
+        let old=adapter.backends[0]
+        let activation=try XCTUnwrap(agent.lifecycle.owned.values.first?.activation)
+        let operation=try agent.lifecycle.sandboxGrants.beginOperation(in:activation)
+        let decision=SandboxPolicy().evaluate(root.deletingLastPathComponent().appendingPathComponent("outside"),action:.write,context:agent.sandboxSettings.context(roots:.init(project:root),interaction:.approval))
+        try agent.lifecycle.sandboxGrants.approve(decision,access:.readWrite,lifetime:.session,operation:operation)
+        try agent.sandboxSettings.setTimeout(seconds:15)
+        await Task.yield(); XCTAssertEqual(adapter.backends.count,1); XCTAssertFalse(old.stopped)
+        try agent.sandboxSettings.setProjectAccess(.readOnly,project:root)
+        try await until("old stopping") { old.enteredExit }
+        XCTAssertEqual(adapter.backends.count,1,"Replacement must wait for drain")
+        XCTAssertTrue(agent.lifecycle.sandboxGrants.grants.isEmpty)
+        old.exitGate.release()
+        try await until("replacement started") { adapter.backends.count == 2 && adapter.backends[1].enteredStart }
+        XCTAssertTrue(old.exited)
+    }
+
 }

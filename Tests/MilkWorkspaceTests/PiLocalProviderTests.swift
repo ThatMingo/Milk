@@ -2,6 +2,10 @@ import XCTest
 @testable import Milk
 
 final class PiLocalProviderTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     @MainActor func testUnknownPartialAndExplicitLimitsAreSerializedPerModel() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Local-Limits-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

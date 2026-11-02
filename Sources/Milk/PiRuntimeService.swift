@@ -23,10 +23,12 @@ struct PiRuntimeLocation {
 struct PiRuntimeService {
     let resources: URL
     let environmentOverrides: [String: String]
+    let probeEnvironmentOverrides: [String:String]
     let allowsBundledFixture: Bool
-    init(resources: URL? = nil, environmentOverrides: [String: String] = [:], allowBundledFixture: Bool? = nil) {
+    init(resources: URL? = nil, environmentOverrides: [String: String] = [:], allowBundledFixture: Bool? = nil, probeEnvironmentOverrides: [String:String] = [:]) {
         self.resources = resources ?? Bundle.main.resourceURL ?? Bundle.main.bundleURL
         self.environmentOverrides = environmentOverrides
+        self.probeEnvironmentOverrides = probeEnvironmentOverrides
         allowsBundledFixture = allowBundledFixture ?? (resources != nil)
     }
     var bundledVersion: String? {
@@ -67,8 +69,13 @@ struct PiRuntimeService {
         guard FileManager.default.fileExists(atPath: integration.path) else { throw AgentError.message("Milk's Pi integration extension is missing. Reinstall Milk.") }
         return PiRuntimeLocation(executable: executable, integration: integration, manifest: manifest, bundled: mode.isBundled)
     }
-    func version(of executable: URL, lifecycle: AgentLifecycleCoordinator? = nil, environment: [String: String]? = nil, directory: URL? = nil) async throws -> String {
-        let (data, status) = try await PiUtilityProcess.execute(executable: executable, arguments: ["--version"], directory: directory, environment: environment, timeout: 8, purpose: .versionProbe, lifecycle: lifecycle)
+    /// Pi native distributions read named adjacent resources; never admit the whole launcher parent.
+    static func supportRoots(executable: URL) -> [SandboxProfileBuilder.Root] {
+        let parent=executable.resolvingSymlinksInPath().deletingLastPathComponent()
+        return ["package.json","photon_rs_bg.wasm","native/darwin/prebuilds/darwin-arm64/darwin-platform.node","bin/rg","bin/fd"].map { .init(url:parent.appendingPathComponent($0),subtree:false) }
+    }
+    func version(of executable: URL, lifecycle: AgentLifecycleCoordinator? = nil, environment: [String: String]? = nil, directory: URL? = nil, support: [URL] = [], codeRoot: URL? = nil) async throws -> String {
+        let (data, status) = try await PiUtilityProcess.execute(executable: executable, arguments: ["--version"], directory: directory, environment: environment, timeout: 8, purpose: .versionProbe, lifecycle: lifecycle, support:support,codeRoot:codeRoot)
         guard status == 0, let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             throw AgentError.message("Pi version check failed. Check the executable and its runtime dependencies.")
         }
@@ -141,12 +148,36 @@ struct PiRPCRecordDecoder {
     }
 }
 
+/// Keeps the existing OFF transport and the identity-preserving ON process behind one seam.
+private final class PiChild: @unchecked Sendable {
+    let plain: Process?
+    let owned: SandboxProcess?
+    init(plain: Process) { self.plain = plain; owned = nil }
+    init(owned: SandboxProcess) { self.owned = owned; plain = nil }
+    var isRunning: Bool { owned?.isRunning ?? plain?.isRunning ?? false }
+    var terminationStatus: Int32 { owned?.terminationStatus ?? plain?.terminationStatus ?? -1 }
+    var processIdentifier: Int32 { owned?.processIdentifier ?? plain?.processIdentifier ?? -1 }
+    func terminate() { if let owned { owned.terminate() } else { plain?.terminate() } }
+    func waitUntilExit() { if let owned { owned.waitUntilExit() } else { plain?.waitUntilExit() } }
+    func read(_ handle: FileHandle) -> Data { owned?.read(handle) ?? handle.availableData }
+}
+
 /// Owns one process, its async request table, deadlines, byte framing, stderr, and shutdown.
 @MainActor final class PiRPCClient {
     var onRecord: ((JSONValue) -> Void)?
     var onFailure: ((String) -> Void)?
-    private(set) var stderr = ""
-    private var process: Process?
+    private var stderrBytes = Data()
+    private var redactor = RuntimeDiagnosticRedactor(environment:[:])
+    var stderr: String {
+        // Preserve UTF-8 across reads; withhold an incomplete final scalar.
+        var bytes = stderrBytes
+        for _ in 0..<4 {
+            if let value = String(data:bytes,encoding:.utf8) { return String(redactor.text(value).suffix(16384)) }
+            if !bytes.isEmpty { bytes.removeLast() }
+        }
+        return String(redactor.text(String(decoding:stderrBytes,as:UTF8.self)).suffix(16384))
+    }
+    private var process: PiChild?
     private var input: FileHandle?
     private var generation = UUID()
     private var closing = false
@@ -154,20 +185,31 @@ struct PiRPCRecordDecoder {
     private var deadlines: [String: Task<Void, Never>] = [:]
     private let writer = DispatchQueue(label: "dev.milk.pi.stdin")
     var isRunning: Bool { process?.isRunning == true && !closing }
+    var processIdentifier: Int32? { isRunning ? process?.processIdentifier : nil }
 
-    func launch(executable: URL, arguments: [String], workspace: URL, environment: [String: String]) throws {
+    func launch(executable: URL, arguments: [String], workspace: URL, environment: [String: String], sandboxProfile: String? = nil, redactedEnvironmentKeys: Set<String> = [], sandboxEnabled: Bool) throws {
+        guard !sandboxEnabled || sandboxProfile != nil else { throw AgentError.message("Sandbox ON requires an explicit RPC purpose profile. No unrestricted fallback is available.") }
         guard process == nil else { throw AgentError.message("Pi is already started.") }
-        let child = Process(), stdin = Pipe(), stdout = Pipe(), errors = Pipe()
-        child.executableURL = executable; child.arguments = arguments; child.currentDirectoryURL = workspace
-        child.environment = environment; child.standardInput = stdin; child.standardOutput = stdout; child.standardError = errors
-        try child.run()
+        generation = UUID() // Retired stderr/records must not enter a new credential scope.
+        redactor = RuntimeDiagnosticRedactor(environment:environment,additionalKeys:redactedEnvironmentKeys); stderrBytes = Data()
+        let stdin = Pipe(), stdout = Pipe(), errors = Pipe()
+        let child: PiChild
+        if let sandboxProfile {
+            let command = SandboxProfileBuilder.command(executable: executable, arguments: arguments, profile: sandboxProfile)
+            child = PiChild(owned: try SandboxProcess(executable: command.0, arguments: command.1, directory: workspace, environment: environment, input: stdin, output: stdout, errors: errors))
+        } else {
+            let plain = Process()
+            plain.executableURL = executable; plain.arguments = arguments; plain.currentDirectoryURL = workspace
+            plain.environment = environment; plain.standardInput = stdin; plain.standardOutput = stdout; plain.standardError = errors
+            try plain.run(); child = PiChild(plain: plain)
+        }
         process = child; input = stdin.fileHandleForWriting; closing = false
         let token = generation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let reader = stdout.fileHandleForReading
             var decoder = PiRPCRecordDecoder()
             while true {
-                let data = reader.availableData
+                let data = child.read(reader)
                 if data.isEmpty { break }
                 let batch = decoder.append(data)
                 if !batch.records.isEmpty || batch.failure != nil {
@@ -186,11 +228,12 @@ struct PiRPCRecordDecoder {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let reader = errors.fileHandleForReading
             while true {
-                let data = reader.availableData
+                let data = child.read(reader)
                 if data.isEmpty { break }
                 DispatchQueue.main.async {
                     guard let self, self.generation == token else { return }
-                    self.stderr = String((self.stderr + String(decoding: data, as: UTF8.self)).suffix(16384))
+                    self.stderrBytes.append(data)
+                    if self.stderrBytes.count > self.redactor.byteWindow { self.stderrBytes = self.stderrBytes.suffix(self.redactor.byteWindow) }
                 }
             }
         }
@@ -225,7 +268,8 @@ struct PiRPCRecordDecoder {
         let metric = ChatRenderMetrics.begin()
         defer { ChatRenderMetrics.end("rpc.deliver.main", metric, units: records.count) }
         do {
-            for record in records {
+            for incoming in records {
+                let record = redactor.diagnostics(incoming)
                 if record["type"].string == "response" {
                     guard let id = record["id"].string else { throw AgentError.message(record["error"].string ?? "Pi returned an uncorrelated protocol error.") }
                     if record["success"].bool { finish(id, .success(record["data"])) }
@@ -239,8 +283,9 @@ struct PiRPCRecordDecoder {
         pending.removeValue(forKey: id)?.resume(with: result)
     }
     private func fail(_ text: String) {
-        for id in Array(pending.keys) { finish(id, .failure(AgentError.message(text))) }
-        onFailure?(text); shutdown()
+        let safe = redactor.text(text)
+        for id in Array(pending.keys) { finish(id, .failure(AgentError.message(safe))) }
+        onFailure?(safe); shutdown()
     }
     private func exited(_ code: Int32, generation token: UUID, hasPartialRecord: Bool) {
         guard generation == token else { return }
@@ -255,7 +300,8 @@ struct PiRPCRecordDecoder {
         for id in Array(pending.keys) { finish(id, .failure(AgentError.message("Pi runtime closed."))) }
         let handle = input; input = nil
         writer.async { try? handle?.close() } // EOF is Pi's supported graceful shutdown.
-        if let child = process {
+        if let child = process, child.owned != nil { child.terminate() }
+        if let child = process, child.owned == nil {
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 if child.isRunning { child.terminate() }
             }
@@ -267,6 +313,13 @@ struct PiRPCRecordDecoder {
     func shutdownAndWait() async throws {
         let child = process
         shutdown()
+        if let child, child.owned != nil {
+            // Cleanup must finish even when the operation task was cancelled.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async { child.waitUntilExit(); continuation.resume() }
+            }
+            return
+        }
         let deadline = Date().addingTimeInterval(8)
         while child?.isRunning == true {
             guard Date() < deadline else { throw AgentError.message("Pi has not exited. Its saved history was not deleted; try again.") }

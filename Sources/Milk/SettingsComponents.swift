@@ -45,7 +45,7 @@ struct SettingsReferenceIcon:Shape {
         case "Pi", "Agents":
             p.move(to:.init(x:12,y:2.7));p.addLine(to:.init(x:17.7,y:8.4));p.addCurve(to:.init(x:17.7,y:19.7),control1:.init(x:20.8,y:11.5),control2:.init(x:20.8,y:16.6));p.addCurve(to:.init(x:6.3,y:19.7),control1:.init(x:14.6,y:22.8),control2:.init(x:9.4,y:22.8));p.addCurve(to:.init(x:6.3,y:8.4),control1:.init(x:3.2,y:16.6),control2:.init(x:3.2,y:11.5));p.closeSubpath()
         case "Editor":line([.init(x:16,y:6),.init(x:22,y:12),.init(x:16,y:18)]);line([.init(x:8,y:6),.init(x:2,y:12),.init(x:8,y:18)])
-        case "Agent":line([.init(x:4,y:5),.init(x:12,y:2),.init(x:20,y:5),.init(x:20,y:13),.init(x:17,y:18),.init(x:12,y:22),.init(x:7,y:18),.init(x:4,y:13),.init(x:4,y:5)])
+        case "Agent", "Sandbox":line([.init(x:4,y:5),.init(x:12,y:2),.init(x:20,y:5),.init(x:20,y:13),.init(x:17,y:18),.init(x:12,y:22),.init(x:7,y:18),.init(x:4,y:13),.init(x:4,y:5)])
         case "Git":line([.init(x:6,y:3),.init(x:6,y:15)]);circle(6,18,3);circle(18,6,3);p.move(to:.init(x:18,y:9));p.addQuadCurve(to:.init(x:9,y:18),control:.init(x:18,y:18))
         case "Extensions":p.addRoundedRect(in:CGRect(x:14,y:3,width:7,height:7),cornerSize:.init(width:1,height:1));line([.init(x:10,y:21),.init(x:10,y:7),.init(x:3,y:7),.init(x:3,y:21),.init(x:17,y:21),.init(x:17,y:14),.init(x:3,y:14)])
         case "Updates":line([.init(x:3,y:15),.init(x:3,y:21),.init(x:21,y:21),.init(x:21,y:15)]);line([.init(x:12,y:3),.init(x:12,y:15)]);line([.init(x:7,y:10),.init(x:12,y:15),.init(x:17,y:10)])

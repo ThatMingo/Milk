@@ -49,7 +49,7 @@ struct NativeExtensionCard: View {
             Image(systemName:"puzzlepiece.extension").font(.system(size:18)).foregroundStyle(.white).frame(width:40,height:40).background(MilkTheme.settingsTile("Extensions"),in:RoundedRectangle(cornerRadius:10))
             VStack(alignment:.leading,spacing:6) {
                 HStack { Text(record.manifest.name).font(.system(size:14,weight:.semibold)); Text(record.manifest.version).font(.system(size:11,design:.monospaced)).foregroundStyle(MilkTheme.muted) }
-                Text("Type: Milk Extension · API "+record.manifest.milkApi).foregroundStyle(MilkTheme.muted)
+                Text("Type: Milk Extension · compatibility "+record.manifest.milkApi).foregroundStyle(MilkTheme.muted)
                 Text((record.enabled ? "Enabled":"Disabled")+(record.current.developmentPath == nil ? " · Local":" · Development")+(record.restartRequired ? " · Restart Milk required":"")).font(.system(size:11)).foregroundStyle(MilkTheme.muted)
                 if let problem=record.problem { Text(problem).foregroundStyle(MilkTheme.red).font(.system(size:12)) }
             }.frame(maxWidth:.infinity,alignment:.leading)
@@ -86,7 +86,7 @@ struct NativeExtensionDetails: View {
             detail("Type: Milk Extension")
             detail("ID: "+record.id)
             detail("Version: "+record.manifest.version)
-            detail("Milk API: "+record.manifest.milkApi+" · requires Milk "+record.manifest.minimumMilkVersion)
+            detail("Package compatibility: "+record.manifest.milkApi+" · requires Milk "+record.manifest.minimumMilkVersion)
             detail("Author: "+(record.manifest.author ?? "Not specified"))
             detail("State: "+(record.enabled ? "Enabled":"Disabled"))
             detail("Trust: "+(record.isTrusted ? "User trusted fingerprint":"Modified / blocked"))

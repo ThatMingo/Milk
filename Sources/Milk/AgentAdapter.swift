@@ -24,6 +24,7 @@ struct AgentBackendContext {
     var permission: ComposerPermissionMode
     var purpose: AgentBackendPurpose = .conversation
     var lifecycle: AgentLifecycleCoordinator? = nil
+    var sandboxSettings: SandboxSettingsStore? = nil
 }
 
 /// Optional facet for today's file-backed history. SDK/server adapters need not
@@ -97,7 +98,7 @@ struct AgentActivation: Equatable {
 enum AgentSubmissionIntent: Equatable { case prompt, followUp }
 enum AgentDialogMethod: String { case select, confirm, input, editor }
 enum AgentDialogOrigin: Equatable {
-    case agentExtension, agentPermission, milkPreview, milkExtension
+    case agentExtension, agentPermission, milkPreview, milkExtension, milkSandbox
 }
 enum AgentDialogResponse: Equatable { case value(String), confirmed(Bool), cancelled }
 

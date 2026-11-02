@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// API 1 is a trusted, in-process contract, not an operating-system sandbox.
+/// Native UI is trusted/in-process. Agent code uses the separate extension worker.
 public enum MilkExtensionAPI { public static let version = "1" }
 
 /// Supported host permissions. Native code itself has Milk's process privileges.
@@ -19,6 +19,7 @@ public struct ExtensionManifest: Codable, Equatable {
     public var milkApi: String
     public var minimumMilkVersion: String
     public var principalClass: String
+    public var agentWorkerClass: String?
     public var executable: String
     public var capabilities: [ExtensionCapability]
     public var author: String?
@@ -27,9 +28,9 @@ public struct ExtensionManifest: Codable, Equatable {
     public var update: URL?
     public init(id: String, name: String, version: String, milkApi: String = MilkExtensionAPI.version,
                 minimumMilkVersion: String = "0.7.0", principalClass: String, executable: String,
-                capabilities: [ExtensionCapability] = [], author: String? = nil, description: String? = nil) {
+                agentWorkerClass: String? = nil, capabilities: [ExtensionCapability] = [], author: String? = nil, description: String? = nil) {
         self.id=id; self.name=name; self.version=version; self.milkApi=milkApi; self.minimumMilkVersion=minimumMilkVersion
-        self.principalClass=principalClass; self.executable=executable; self.capabilities=capabilities
+        self.principalClass=principalClass; self.agentWorkerClass=agentWorkerClass; self.executable=executable; self.capabilities=capabilities
         self.author=author; self.description=description
     }
 }
@@ -105,17 +106,54 @@ public struct ExtensionCommand {
     }
 }
 
-/// JSON Schema and JSON arguments/results are confined to the Pi boundary.
+/// Host-resolved filesystem declarations. These are requests, never permissions.
+public struct ExtensionWorkerFileAccess: Codable, Equatable {
+    public enum Source: String, Codable { case argument, storage }
+    public var source: Source
+    public var path: String
+    public var writing: Bool
+    public init(source: Source, path: String, writing: Bool = false) { self.source=source; self.path=path; self.writing=writing }
+}
+/// Metadata only. There is deliberately no in-process agent handler.
 public struct ExtensionPiTool {
     public var id: String
     public var description: String
     public var parameters: Data
     public var requiredCapabilities: Set<ExtensionCapability>
-    public var perform: @MainActor (Data, ExtensionActionContext) async throws -> String
-    public init(id: String, description: String, parameters: Data, requiredCapabilities: Set<ExtensionCapability> = [],
-                perform: @escaping @MainActor (Data, ExtensionActionContext) async throws -> String) {
+    public var files: [ExtensionWorkerFileAccess]
+    public init(id: String, description: String, parameters: Data, requiredCapabilities: Set<ExtensionCapability> = [], files: [ExtensionWorkerFileAccess] = []) {
         self.id=id; self.description=description; self.parameters=parameters
-        self.requiredCapabilities=requiredCapabilities; self.perform=perform
+        self.requiredCapabilities=requiredCapabilities; self.files=files
+    }
+}
+/// Subclass in the same package, loaded only by MilkExtensionWorker after sandbox entry.
+open class MilkExtensionAgentWorker: NSObject {
+    public required override init() { super.init() }
+    open func run(tool: String, arguments: Data, context: ExtensionAgentContext) async throws -> String {
+        throw NSError(domain:"MilkExtensionWorker",code:1,userInfo:[NSLocalizedDescriptionKey:"Unknown worker tool."])
+    }
+}
+/// No trusted Milk services, UI context, secrets, clipboard or generic host launch bridge.
+/// Direct filesystem/process/network APIs execute with this worker's OS profile/environment.
+public struct ExtensionAgentContext {
+    public let workspaceURL: URL
+    public let storageURL: URL
+    public let packageURL: URL
+    private let gitEffect: ([String]) async throws -> String
+    public init(workspaceURL: URL, storageURL: URL, packageURL: URL, git: @escaping ([String]) async throws -> String) {
+        self.workspaceURL=workspaceURL; self.storageURL=storageURL; self.packageURL=packageURL; self.gitEffect=git
+    }
+    public func git(arguments: [String]) async throws -> String { try await gitEffect(arguments) }
+}
+public struct ExtensionWorkerRequest: Codable {
+    public let packageURL: URL
+    public let principalClass: String
+    public let tool: String
+    public let arguments: Data
+    public let workspaceURL: URL
+    public let storageURL: URL
+    public init(packageURL: URL, principalClass: String, tool: String, arguments: Data, workspaceURL: URL, storageURL: URL) {
+        self.packageURL=packageURL; self.principalClass=principalClass; self.tool=tool; self.arguments=arguments; self.workspaceURL=workspaceURL; self.storageURL=storageURL
     }
 }
 
@@ -138,8 +176,6 @@ public struct ExtensionBackgroundService {
     @discardableResult func view(at point: ExtensionPoint, _ item: ExtensionViewContribution) throws -> ExtensionRegistration
     @discardableResult func action(at point: ExtensionPoint, _ item: ExtensionActionContribution) throws -> ExtensionRegistration
     @discardableResult func command(_ item: ExtensionCommand) throws -> ExtensionRegistration
-    /// Adds a Milk slash command plus a model-callable Pi bridge command tool. Requires pi.
-    @discardableResult func piCommand(_ item: ExtensionCommand) throws -> ExtensionRegistration
     @discardableResult func piTool(_ item: ExtensionPiTool) throws -> ExtensionRegistration
     @discardableResult func prompt(id: String, text: String) throws -> ExtensionRegistration
     @discardableResult func service(_ item: ExtensionBackgroundService) throws -> ExtensionRegistration

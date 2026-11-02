@@ -15,7 +15,7 @@ import MilkExtensionKit
         try context.contributions.status(.init(id:"connection",title:"oMLX",systemImage:"server.rack",priority:0) { _ in AnyView(StatusLabel(model:model)) })
         try context.contributions.command(.init(name:"omlx",summary:"Open oMLX Status") { _ in try context.focusSidebar("status") })
         try context.contributions.view(at:.chatToolbar,.init(id:"connection",title:"oMLX",systemImage:"server.rack") { _ in AnyView(StatusToolbar(model:model)) })
-        try context.contributions.piTool(.init(id:"status",description:"Read the last observed oMLX connection state; unknown telemetry is not invented.",parameters:Data(#"{"type":"object","properties":{},"additionalProperties":false}"#.utf8),requiredCapabilities:[.network]) { _,_ in model.summary })
+        try context.contributions.piTool(.init(id:"status",description:"Read the last observed oMLX state from a nonsecret snapshot; unknown telemetry is not invented.",parameters:Data(#"{"type":"object","properties":{},"additionalProperties":false}"#.utf8),files:[.init(source:.storage,path:"agent-status.txt")]))
         try context.contributions.prompt(id:"status-help",text:"Use the oMLX Status tool for observed connection information. Available model IDs do not imply that a model is loaded. Never invent telemetry.")
         try context.contributions.service(.init(id:"poll") { _ in
             while !Task.isCancelled {
@@ -65,7 +65,7 @@ private struct Configuration: Codable {
     }
     func refresh() async {
         guard !checking, let endpoint=URL(string:config.endpoint), ["http","https"].contains(endpoint.scheme), endpoint.host != nil else { return }
-        checking=true; defer { checking=false }
+        checking=true; defer { checking=false; try? context.storage.write(Data(summary.utf8),to:"agent-status.txt") }
         do {
             let api=endpoint.path.hasSuffix("/v1") ? endpoint:endpoint.appendingPathComponent("v1")
             let response=try await get(api.appendingPathComponent("models"))
@@ -126,4 +126,12 @@ private enum ExampleError: LocalizedError { case message(String); var errorDescr
 @MainActor private struct StatusToolbar: View {
     @ObservedObject var model: StatusModel
     var body: some View { Button { try? model.context.focusSidebar("status") } label: { Image(systemName:"server.rack") }.help(model.summary).buttonStyle(ExtensionButtonStyle()) }
+}
+
+/// Executes only in MilkExtensionWorker, never in the trusted UI process.
+public final class OMLXStatusAgentWorker: MilkExtensionAgentWorker {
+    public override func run(tool: String, arguments: Data, context: ExtensionAgentContext) async throws -> String {
+        guard tool == "status" else { throw ExampleError.message("Unknown agent tool.") }
+        return (try? String(contentsOf:context.storageURL.appendingPathComponent("agent-status.txt"),encoding:.utf8)) ?? "oMLX · Not checked"
+    }
 }

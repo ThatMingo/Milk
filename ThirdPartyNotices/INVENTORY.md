@@ -6,7 +6,7 @@ describes prospective inclusion; this working folder has no Git metadata.
 
 | Component | Pin / provenance | License / notice | Public source snapshot | Clean Milk.app |
 | --- | --- | --- | --- | --- |
-| Milk / MilkExtensionKit / host / example | 0.7.0, API 1, original source | Root MIT LICENSE | Source, tests, scripts | Compiled host and SDK; example excluded |
+| Milk / MilkExtensionKit / host / example | 0.7.0, original source | Root MIT LICENSE | Source, tests, scripts | Compiled host and SDK; example excluded |
 | Pi | 1.4.0 official release; hashes in runtime manifest and catalog | MIT, Pi-LICENSE; dependencies separately licensed | Manifest, catalog and notices; no executable | No executable or upstream runtime assets |
 | Bun | 1.3.14 within downloaded Pi standalone | MIT plus native dependencies, Bun-LICENSE.md and Runtime-Libraries.txt | Notices only | No Bun runtime |
 | JavaScriptCore / native runtime libraries | Exact standalone reconstruction not established | LGPL and other licenses in native notices | Notices; no native implementation or binaries | No downloaded agent native libraries |

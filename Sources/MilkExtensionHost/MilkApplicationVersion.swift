@@ -18,7 +18,13 @@ public struct MilkApplicationVersion {
            Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String == "Milk" {
             return Self(bundle: .main)
         }
+        #if DEBUG
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        #else
+        // Unbundled release diagnostics may be launched explicitly from a checkout.
+        // Never embed the builder's private source directory in distributed code.
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        #endif
         return Self(version: read(root.appendingPathComponent("VERSION")), buildNumber: read(root.appendingPathComponent("BUILD_NUMBER")))
     }
     private init(version: String?, buildNumber: String?) { self.version = version; self.buildNumber = buildNumber }

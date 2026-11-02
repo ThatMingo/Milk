@@ -20,6 +20,7 @@ struct SettingsContent: View {
                 case "Agents", "Pi": AgentsSettingsView(state:state)
                 case "Editor": editor
                 case "Agent": agentSettings
+                case "Sandbox": SandboxSettingsView(store: settings.sandbox, workspace: workspace, grants: agent.lifecycle.sandboxGrants)
                 case "Git": git
                 case "Extensions": extensions
                 case "Preview": preview

@@ -24,7 +24,7 @@ import MilkLayout
         try context.contributions.view(at:.chatToolbar,view("toolbar"))
         try context.contributions.action(at:.fileContextMenu,.init(id:"inspect",title:"Inspect") { _ in })
         if context.capabilities.contains(.pi) {
-            try context.contributions.piTool(.init(id:"probe",description:"Probe",parameters:Data(#"{"type":"object","properties":{}}"#.utf8)) { _,_ in "Observed" })
+            try context.contributions.piTool(.init(id:"probe",description:"Probe",parameters:Data(#"{"type":"object","properties":{}}"#.utf8)))
             try context.contributions.prompt(id:"prompt",text:"Native prompt")
         }
         try context.contributions.service(.init(id:"poll",workspaceScoped:true) { [weak self] workspace in
@@ -153,7 +153,7 @@ final class NativeExtensionTests: XCTestCase {
         XCTAssertThrowsError(try context.storage.write(Data(),to:"../outside"))
         XCTAssertThrowsError(try context.contributions.command(.init(name:"omlx",summary:"collision") { _ in }))
         XCTAssertThrowsError(try context.contributions.command(.init(name:"help",summary:"core collision") { _ in }))
-        XCTAssertThrowsError(try context.contributions.piTool(.init(id:"no",description:"No grant",parameters:Data("{}".utf8)) { _,_ in "" }))
+        XCTAssertThrowsError(try context.contributions.piTool(.init(id:"no",description:"No grant",parameters:Data("{}".utf8))))
         try context.storage.write(Data("retained".utf8),to:"preferences")
         let firstDeadline=Date().addingTimeInterval(2)
         while !probe.serviceStarts.contains(where:{ $0 == a }) && Date() < firstDeadline { try await Task.sleep(nanoseconds:5_000_000) }
@@ -317,17 +317,31 @@ final class NativeExtensionTests: XCTestCase {
         let manager=NativeExtensionManager(root:base.appendingPathComponent("support"),loader:ProbeLoader()), workspace=base.appendingPathComponent("workspace")
         await manager.setWorkspace(workspace); try await install(manager,url:fixture(base,manifest:manifest()))
         let tool=try XCTUnwrap(manager.registry.tools.first)
-        var asked=false
-        manager.authorize={ _,_,_,session in asked=true; XCTAssertEqual(session,7); throw NativeExtensionError.invalid("Denied") }
-        do { _ = try await manager.invokePiTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace,session:7); XCTFail("Approval bypass") } catch {}
-        XCTAssertTrue(asked)
-        manager.authorize={ _,_,_,_ in }
-        let result=try await manager.invokePiTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace,session:7)
-        XCTAssertEqual(result,"Observed")
+        // The extension worker contract rejects a UI-only package for agent execution, even with ordinary approval.
+        manager.authorize={ _,_,_,_ in XCTFail("Preparing a worker must never invoke native action approval/handlers") }
+        do { _ = try await manager.prepareAgentTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace); XCTFail("UI-only package gained an agent fallback") } catch {}
         XCTAssertEqual(try manager.piPrompt(manager.registry.prompts.keys.first!,workspace:workspace),"Native prompt")
         try await manager.setEnabled("dev.example.native",false)
-        do { _ = try await manager.invokePiTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace,session:7); XCTFail("Disabled tool executed") } catch {}
+        do { _ = try await manager.prepareAgentTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace); XCTFail("Disabled tool prepared") } catch {}
         let catalog=try JSONSerialization.jsonObject(with:Data(contentsOf:manager.catalogURL)) as? [String:Any]
         XCTAssertTrue((catalog?["tools"] as? [Any])?.isEmpty == true); await manager.shutdown()
     }
+    @MainActor func testWorkerReceiptCannotSurviveSameIDWithdrawalAndReregistration() async throws {
+        let base=try temporary(); defer { try? fm.removeItem(at:base) }
+        let loader=ProbeLoader(), manager=NativeExtensionManager(root:base.appendingPathComponent("support"),loader:loader)
+        let workspace=base.appendingPathComponent("workspace"); try fm.createDirectory(at:workspace,withIntermediateDirectories:true)
+        await manager.setWorkspace(workspace)
+        var definition=manifest(); definition.agentWorkerClass="Fixture.Worker"
+        try await install(manager,url:fixture(base,manifest:definition))
+        let tool=try XCTUnwrap(manager.registry.tools.first)
+        let invocation=try await manager.prepareAgentTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace)
+        XCTAssertTrue(manager.agentToolIsLive(invocation))
+        let context=try XCTUnwrap(loader.instances.first?.context)
+        context.contributions.remove(.init(id:tool.id))
+        try context.contributions.piTool(tool.item)
+        XCTAssertEqual(manager.registry.tools.first?.id,tool.id)
+        XCTAssertFalse(manager.agentToolIsLive(invocation),"Re-registering a stable public name must not revive an old live receipt")
+        await manager.shutdown()
+    }
+
 }

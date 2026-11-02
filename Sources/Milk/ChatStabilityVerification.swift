@@ -5,7 +5,11 @@ import Combine
 /// Explicit opt-in developer mode. All workspace/Pi/defaults state is disposable;
 /// the upstream runtime and loopback model fixture are test inputs only.
 @MainActor enum ChatStabilityVerification {
+    #if DEBUG
     private static let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    #else
+    private static let project = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    #endif
     private static let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Chat-Native-" + UUID().uuidString)
     private static let suite = "Milk.ChatNative." + UUID().uuidString
     private static var provider = PiProviderConfiguration()

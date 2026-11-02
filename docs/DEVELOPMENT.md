@@ -28,7 +28,7 @@ open output/Milk.app
 ```
 
 The script builds the app and dynamic MilkExtensionKit SDK, stages resources in a
-temporary directory under `output/`, signs both SDK copies and the app, verifies
+temporary directory under `output/`, signs both SDK copies, the separate agent-extension helper and the app, verifies
 the signature, then replaces `output/Milk.app`. Development signing is ad hoc by
 default. `CODESIGN_IDENTITY` can select an identity; this does not perform
 notarization or establish release acceptance.
@@ -120,3 +120,94 @@ recorded in [final acceptance](AGENT_PHASE_FINAL_ACCEPTANCE.md) and the
 For native extension authoring and the independent example build, use the
 [extension guide](EXTENSION_DEVELOPMENT.md). No Pi bootstrap is required merely
 to compile Milk or a native Milk extension.
+
+## Sandbox policy tests
+
+Sandbox policy, path, settings, grants and execution tests use disposable files/preferences:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache" \
+swift test --cache-path "$PWD/.build/cache" --filter Sandbox
+```
+
+Add `--disable-sandbox` if the host's nested SwiftPM sandbox blocks the build.
+The `SandboxExecutionTests` and `SandboxPiIntegrationTests` launch the production
+Seatbelt/worker paths on macOS 26+, use the optional pinned Pi fixture, and require
+host child-process permissions and a disposable localhost provider. They use
+synthetic credentials through a fake credential store, never personal Keychain data.
+`SandboxPopupTests` renders the real anchored child panel in light/dark appearance;
+its disposable captures are written under `/private/tmp`. Older provider/native
+extension tests explicitly select Sandbox OFF to preserve their compatibility scope.
+The opt-in Phase 1 native/Pi harness is separate under `Tests/SandboxPhase1/`.
+See [Sandbox policy](SANDBOX_POLICY.md) for the current implementation and its limits.
+
+Phase 4 adds `SandboxEnvironmentTests` and `SandboxProviderParityTests`: hostile
+ambient/startup inputs, bounded configuration admission, actual RPC diagnostic
+redaction, custom runtime-vs-helper credential scope, typed Xcode selection, Local
+key rotation/revocation/None and native configured-provider auth/env precedence.
+The existing actual Pi/MCP and shell/Python/Node/npm tests now cover both domains.
+All keys/providers are synthetic; personal Keychain or live oMLX access is unnecessary.
+Fixture-only probe controls must use the separate `probeEnvironmentOverrides` input.
+
+
+Phase 5 adds the Milk-owned `MilkExtensionWorker` SwiftPM product under
+`Contents/Helpers`. It is signed with `scripts/milk-worker.entitlements` (library
+validation exception only), a distinct identifier, and no Milk Keychain identity or
+provisioning profile. The app and SDK signing flow is otherwise unchanged. It is
+not a bundled coding agent. Rebuild native packages affected by the worker execution contract; view/layout/
+settings registrations remain, while agent handlers must move to the worker entry.
+See [extension development](EXTENSION_DEVELOPMENT.md) and
+[host-effect boundaries](SANDBOX_HOST_EFFECTS.md).
+
+
+Phase 6 adds `SandboxPurposeTests` and lifecycle relaunch checks. They execute real
+Seatbelt plans, system scripts/shims, optional local Node/module dependencies, local
+package commands and a locally compiled hash-pinned native candidate through the
+actual installation transaction. No candidate is run unrestricted as a test setup
+step. Candidate fixture compilation/archive creation are trusted test preparation;
+candidate version/RPC execution uses the production contract. The new tests need
+full Xcode and permission to run sandbox-exec, as do the existing integration suites.
+See [purpose contracts](SANDBOX_PURPOSES.md) for supported closure and boundaries.
+Default ON preserves existing saved OFF; the app build remains ad-hoc development
+signing by default, with ordinary login-Keychain credentials. See [Sandbox acceptance](SANDBOX_ACCEPTANCE.md)
+for exact final evidence and optional distribution/coverage limitations.
+
+
+Phase 7 adds `SandboxAcceptanceTests` and concurrent anchored-popup routing tests.
+`python3 Tests/Fixtures/verify_sandbox_shutdown.py` runs the packaged app's opt-in
+`--verify-sandbox-quit` / `--verify-sandbox-window-close` diagnostics with a pending
+Sandbox popup. They use a synthetic backend, disposable preferences/workspace and
+the real app termination delegate; normal launch never runs this fixture. Captures
+and shutdown metadata go to ignored `output/verification-sandbox/`. This is automated
+AppKit interaction, not manual human acceptance or live-provider validation.
+
+
+Release packaging remaps source/debug paths and strips debug/OSO records before
+signing. The packager rejects the builder's checkout/home prefixes in the built and
+unpacked bundle. Debug builds retain source locations; release-only checkout
+verification modes must be launched with the repository as their working directory.
+Bundled product versioning always uses Info.plist. This artifact hygiene is independent
+of optional Developer ID/notarization; neither is required for private builds or credentials.
+
+
+Real Xcode builds can require the macOS per-user `TemporaryItems` item-replacement
+folder even with private TMPDIR and project-scoped DerivedData/cache flags. Milk does
+not admit that shared folder automatically: a command may explicitly request it
+through the normal temporary folder approval flow. The acceptance build verifies
+that an Allow Once grant enables the build while unrelated outside writes remain
+denied and the grant expires for future admission. The folder can contain other
+applications' temporary data, so this is extra reviewed authority, not private cache
+redirection. Private-TMP-only Xcode builds are not claimed; Swift compilation with
+private module caches is independently covered. See [acceptance](SANDBOX_ACCEPTANCE.md).
+
+
+Ordinary Keychain acceptance: build ad-hoc, then run the bundled
+`--verify-provider-keychain` check and optional
+`python3 Tests/Fixtures/verify_provider_keychain.py --rebuild --changed-signature`.
+Only disposable UUID identities/synthetic values are used and deleted. Adding
+`--authorize` permits the explicit recovery flow and may require native user action;
+never automate a login password or put it in logs. User-confirmed native authorization
+and a subsequent separate-process read were measured in this revision. See
+[API Keychain](API_KEYCHAIN.md). Optional signing/profile support remains available;
+no profile is needed for default credential storage. Do not bypass Gatekeeper.

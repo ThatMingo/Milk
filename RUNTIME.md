@@ -31,6 +31,106 @@ lazy: restoring a workspace or browsing retained history does not launch Pi,
 install a runtime, probe an executable or start provider polling. Agent work and
 explicit verification/provider actions can start the relevant owned processes.
 
+## Sandbox execution
+
+Milk-owned policy/settings/scope types now sit above the adapter layer. Settings →
+Sandbox persists global/project policy separately from Ask/Autonomous. Temporary
+Once/Session authority is memory-only and bound to lifecycle activation/operation
+identities, never saved-chat IDs. Lifecycle invalidation removes future authority
+before drain completion. See [Sandbox policy](docs/SANDBOX_POLICY.md) for precedence,
+path snapshots, profile/environment domains and the accepted descendant limitation.
+
+Sandbox ON now applies a fixed filesystem Seatbelt profile to Pi conversation and
+read-only Preview inspection runtimes and to the pre-RPC version probe on that
+launch path. Supported stock tools and user bash route over owned RPC pipes to
+Milk-launched sibling workers with operation-specific profiles. Temporary grants
+never widen the parent runtime. Each worker uses the selected Pi executable with
+only Milk's worker extension, not a bundled coding agent, and an independently
+constructed environment without Local credentials.
+
+The anchored composer popup handles Once/Session/Protected permissions. Grant
+admission ends before owned-group TERM/drain/KILL and child reap. Deliberately
+detached survivors may retain their inherited static profile until exit, as accepted
+in the design; expiry is not authoritative retroactive revocation. Changing policy
+or Ask/Autonomous mode requires a fresh fixed runtime.
+
+Unknown model tools/MCP routes fail closed while ON. Pi-owned direct execution,
+children and extensions remain in the fixed runtime sandbox and may inherit the
+configured inference key (the accepted L2 domain). `milk_git` accepts recognized
+structured argv and validates worktree/gitdir/common-dir/configuration identity
+before exact real-Git escalation. Configured hooks/helpers/editors share that explicit
+trust exception. It never elevates surrounding shell text. Normal profiles protect
+`.git`, resolved/common/worktree metadata and inventoried control paths; Project Read
+Only blocks mutations. Trusted user `GitService` remains unchanged.
+
+Native tools use metadata-only extension worker registrations and `MilkExtensionWorker`, a
+separate Milk-owned signed helper without Milk's Keychain entitlements. It loads
+agent code only after profile/environment entry, and offers only typed, policy-gated
+Git IPC, not native host services. UI/slash/service handlers remain trusted in-process
+for explicit user actions. Legacy in-process agent tool/command fallback is removed.
+
+`milk_job` explicitly creates background/watcher jobs with a host UUID, immutable
+request/purpose, activation/session/project owner, fresh operation scope/profile and
+sanitized environment. Only that explicit registration survives its initiating RPC.
+Stop/restart uses owned identity-safe cleanup; restart re-evaluates policy/grants.
+Session/project/runtime invalidation and relevant grant revocation stop jobs. Preview
+has its own host-only receipt and uses the same job boundary for agent suggestions;
+trusted user Preview still uses DevServerService's existing host launch. Agent launch
+commands/capabilities never persist as trusted Preview configuration. External URLs
+never confer process ownership. Deliberately detached survivors remain the accepted
+L1 limitation, including for jobs/workers.
+
+User Terminal, Editor, GitService and user-started Preview remain trusted. Sandbox
+OFF removes Milk filesystem enforcement, retaining separate native worker execution,
+typed host-effect requests and independently sanitized Milk worker/job environments.
+Current executable purposes also cover version/compatibility checks, package commands
+and installation candidates. Sandbox defaults ON; persisted explicit OFF is retained.
+See [Sandbox final acceptance](docs/SANDBOX_ACCEPTANCE.md) for current-host evidence
+and optional distribution/coverage limitations.
+See [host-effect boundaries](docs/SANDBOX_HOST_EFFECTS.md) for exact recognition,
+worker IPC and ownership details.
+
+## Purpose-specific environments
+
+`PiLaunchResolver` resolves the selected HOME and Pi data profile before filtering
+host input. `PiEnvironment` preserves documented Pi 1.4 provider variables, locale,
+proxy/CA configuration and selected-profile authentication references in `models.json`
+and `mcp.json`. Model IDs/descriptions and project files do not authorize extra host
+variables. API-key/header and MCP env/header/OAuth-secret references are configuration
+for the trusted Pi domain; keep that user profile trusted. Arbitrary ambient variables
+are not copied. Milk credential/authority flags are cleared; `PiProviderSupport` then
+reads the exact profile/endpoint Keychain credential and injects it last.
+
+Runtime PATH uses selected support directories, absolute nonempty host entries and
+normal system tool locations. Relative/empty entries, loader/interpreter startup
+injection and Git environment overrides are removed. A validated host-selected
+`DEVELOPER_DIR` is typed separately; no new filesystem permission follows from it.
+HOME/profile identity remains the selected managed or Existing setup. ON redirects
+runtime TMPDIR to its private cache; OFF keeps its explicit unenforced execution
+behavior while environment hardening still applies.
+
+Version and compatibility helpers use private HOME/TMP/profile state and no provider
+credentials or authenticated proxies. Their explicit `probeEnvironmentOverrides`
+are separate from runtime overrides; a runtime custom provider token is not reused
+as a helper input. Package CLI uses the same independent environment construction,
+with only its explicit selected target profile writable and its local source read-only.
+See [purpose inventory](docs/SANDBOX_PURPOSES.md) for the complete mapping.
+
+`SandboxEnvironment` is the reusable agent-agnostic Milk worker boundary: it accepts
+host work/toolchain inputs, not an ambient dictionary. Pi's sibling entry adds only
+its own offline/private-profile controls. Shell/Python/Node/npm inherit this clean
+worker environment. Model-supplied env/environment dictionaries reject. Pi-owned
+children, extensions, `pi.exec` and stdio MCP still inherit the active Pi credential
+by the approved L2 decision; no broker or spawning restriction is introduced.
+
+RPC diagnostics redact the active Local key and admitted environment credentials,
+including partial stderr reads and declared custom authentication references. Retired
+process callbacks cannot enter a new credential scope. This is diagnostic hygiene,
+not protection against trusted Pi code deliberately disclosing a key through data
+or Pi's own files. Native Pi auth/OAuth ownership is unchanged; auth files are not
+copied into Milk's private Preview inspection profile. Local Preview remains covered;
+Existing-profile-only configured-provider Preview remains an explicit limitation.
+
 ## Installation and compatibility
 
 Settings → Agents is authoritative. The production app has three states:
@@ -55,6 +155,33 @@ It checks required native RPC reply shapes and the Milk integration handshake,
 then awaits shutdown before removing probe storage. It does not send a model
 prompt or use a personal session. Live startup also validates the required
 protocol and integration before publishing readiness.
+
+Every pre-RPC version and compatibility execution has a `SandboxPurposePlan`:
+private HOME/TMP/cache/profile/workspace, a secret-free environment, and a filesystem
+ceiling intersected with normal policy. Compatibility and installation candidates
+never receive the selected user's provider/auth files. No missing task-local context
+can imply unrestricted execution: standalone entry points capture current Sandbox
+settings, and RPC launch requires explicit ON/OFF classification. ON with a missing
+profile rejects before spawn. Unknown utility purposes reject.
+
+`SandboxExecutableClosure` validates regular-file identities, arm64 Mach-O load
+commands/libraries/rpaths, supported shebang chains and selected installation/module
+roots without running `which`, `otool` or another candidate. `env <interpreter>` uses
+only selected installation and system roots. Known Apple developer shims resolve to
+the exact selected toolchain executable, preserving script argv while avoiding a
+hidden xcrun/Xcode cache launch. Ambient PATH never selects a probe interpreter.
+Declared symlink objects and ancestor metadata are admitted literally, not as broad
+Homebrew/home grants. Homebrew libcrypto's named configuration/certificate inputs
+are explicit dependencies. Unsupported/malformed closure fails ON with no retry.
+Opaque wrappers needing undeclared code/config are unsupported ON; OFF stays an
+explicit compatibility choice, never an automatic fallback.
+
+Local package registration/removal uses the selected Pi CLI and actual source/target,
+private temporary state and a fresh contract. Source inputs are read-only even inside
+a writable project; target profile writes still obey Protected/inactive/Read Only
+rules. Pre-existing source/target hard-link or crossing symlink ambiguities reject
+before execution. No extra privilege follows from HOME, PATH, DEVELOPER_DIR or
+PI_PACKAGE_DIR values. Code/runtime dependencies are read-only.
 
 ### Managed revisions
 
@@ -84,6 +211,15 @@ managed integrity checks add startup I/O; that cost remains unbenchmarked.
 probe, utility-command and installation-transaction leases. Ownership begins
 before asynchronous startup and continues while work is closing. Each lease
 carries activation identity and relevant writer/installation associations.
+
+Security-relevant Sandbox settings close old admission/grants, stop auxiliary
+processes and jobs, and drain runtime leases. Previously connected conversations
+then reconnect through the coordinator's drain barrier with fresh profiles; metadata
+browsing stays lazy. Managed jobs are stopped rather than revived under old grants.
+Timeout-only edits do not restart runtimes/probes. ON Preview inspection has private
+HOME/profile/TMP and minimal read-tool dependencies. OFF Preview retains the explicit
+unenforced configured-provider compatibility path; the ON Existing-profile-only
+configured-provider inspection seam remains documented for Phase 7.
 
 Restart, configuration/workspace handoff and matching session-file mutations
 invalidate old work and await the required writers before replacement. Stale
@@ -146,7 +282,8 @@ Milk's integration gates mutating/unknown tools in Approval mode and allows tool
 in Autonomous mode. Dialogs stay tied to their originating session/activation;
 host Preview/native-extension approvals keep their own ownership. Exact-input
 session allowances are not persistent blanket grants. Tool approval is not an
-OS sandbox, and trusted native/Pi extension code runs with user permissions.
+OS sandbox. Native extension UI remains trusted in Milk; Pi extension code uses
+the fixed runtime filesystem sandbox when ON and user permissions when OFF.
 Models, reasoning levels and image support come from the live provider catalog;
 Milk does not advertise a fixed sample capability set.
 
@@ -227,8 +364,9 @@ source snapshot, not app redistribution. Final acceptance records successful
 managed and external Pi execution on the development host and 156/156 tests;
 it does not establish clean-machine trust or complete GUI acceptance.
 
-Developer ID signing, notarization, stapling and clean-machine acceptance remain
-release gates. Bun/native matching-source, reconstruction, relinking, provenance
+Milk supports ad-hoc private distribution and ordinary login-Keychain credentials.
+Developer ID/notarization/stapling and broader clean-machine coverage are optional;
+Gatekeeper may require user-selected Open Anyway. Bun/native matching-source, reconstruction, relinking, provenance
 and downloaded-runtime distribution review remains unresolved. Hash verification,
 retained notices and keeping binaries outside Milk.app do not establish release
 clearance. See [third-party notices](ThirdPartyNotices/README.md) and
@@ -248,3 +386,10 @@ those files. Runtime deletion removes versions only, preserving profile data.
 This selects Pi's persistent profile; it is not an OS sandbox, and explicit
 project configuration/resources and trusted extension code retain Pi's normal
 behavior. No upstream Pi code is patched.
+
+
+Milk Local credentials now use ordinary macOS login/default file-based Keychain via
+SecItem in `dev.milk.agent-provider.login.v1`, with unchanged profile/provider/endpoint
+accounts. No provisioning or Data Protection selector is required. Normal access is
+noninteractive; explicit Recover Stored Key can authorize a changed ad-hoc build.
+Default ACLs are retained. See [Keychain backend and measured rebuild behavior](docs/API_KEYCHAIN.md).

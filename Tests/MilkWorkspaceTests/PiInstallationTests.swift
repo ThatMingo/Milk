@@ -16,7 +16,7 @@ final class PiInstallationTests: XCTestCase {
         try Data(#"{"fixture":"retain settings"}"#.utf8).write(to: ordinary.appendingPathComponent("settings.json"))
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let runtime = PiRuntimeService(resources: resources, environmentOverrides: ["PI_CODING_AGENT_DIR": ordinary.path,
-            "MILK_PARITY_READY": "1", "MILK_COMPAT_LOG": root.appendingPathComponent("peer.jsonl").path, "PATH": "/usr/bin:/bin"])
+            "MILK_PARITY_READY": "1", "MILK_COMPAT_LOG": root.appendingPathComponent("peer.jsonl").path, "PATH": "/usr/bin:/bin"], probeEnvironmentOverrides:["MILK_PARITY_READY":"1","MILK_COMPAT_LOG":root.appendingPathComponent("peer.jsonl").path])
         return (root, executable, runtime)
     }
     private func records(_ root: URL) -> [JSONValue] {
@@ -64,9 +64,9 @@ final class PiInstallationTests: XCTestCase {
         XCTAssertEqual(launch.installation.ownership, .external)
         XCTAssertFalse(launch.compatibility.usable, "Version output alone is not an integration handshake")
         XCTAssertFalse(launch.supportPaths.contains { $0.path.contains("PiRuntime") })
-        XCTAssertEqual(launch.environment["PATH"], executable.deletingLastPathComponent().path + ":/usr/bin:/bin")
+        XCTAssertEqual(Array((launch.environment["PATH"] ?? "").components(separatedBy:":").prefix(3)),[executable.deletingLastPathComponent().path,"/usr/bin","/bin"])
         var config = AgentConfiguration(); config.runtime = .external(executable)
-        let backend = PiAdapter(runtime: runtime, configuration: { config }).makeBackend(context: .init(permission: .approval, lifecycle: owner))
+        let backend = PiAdapter(runtime: runtime, configuration: { config }).makeBackend(context: .init(permission: .approval, lifecycle: owner, sandboxSettings: sandboxOffForLegacyTests()))
         addTeardownBlock { try await backend.shutdownAndWait() }
         var ready: RuntimeStatus?
         backend.onEvent = { if case .runtime(let status) = $0, status.phase == .ready { ready = status } }
@@ -82,7 +82,7 @@ final class PiInstallationTests: XCTestCase {
         for overrides in [["MILK_COMPAT_VERSION_ONLY": "1"], ["MILK_PARITY_READY": "0"], ["MILK_COMPAT_BAD_COMMAND": "get_messages"], ["MILK_PARITY_VERSION": "1.5.0"]] {
             let (root, executable, base) = try fixture(), owner = AgentLifecycleCoordinator()
             var env = base.environmentOverrides; env.merge(overrides) { _, new in new }
-            let runtime = PiRuntimeService(resources: base.resources, environmentOverrides: env)
+            let runtime = PiRuntimeService(resources: base.resources, environmentOverrides: env, probeEnvironmentOverrides: env)
             let before = try ordinarySnapshot(root)
             let report = try await PiCompatibilityProbe.inspect(mode: .external(executable), runtime: runtime, lifecycle: owner)
             XCTAssertEqual(report.state, overrides["MILK_PARITY_VERSION"] == nil ? .incompatibleIntegration : .untested)
@@ -90,7 +90,7 @@ final class PiInstallationTests: XCTestCase {
             XCTAssertEqual(try ordinarySnapshot(root), before)
             if overrides["MILK_PARITY_VERSION"] != nil {
                 var config = AgentConfiguration(); config.runtime = .external(executable)
-                let backend = PiBackend(runtime: runtime)
+                let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime)
                 var state: AgentCompatibilityState?
                 backend.onEvent = { if case .runtime(let status) = $0 { state = status.compatibility?.state } }
                 do { try await backend.start(workspace: root, session: .init(id: 0, title: "Untested"), configuration: config); XCTFail("Untested version launched") } catch {}
@@ -118,36 +118,44 @@ final class PiInstallationTests: XCTestCase {
     @MainActor func testProbeCancellationAwaitsExitAndRemovesItsIsolatedDirectory() async throws {
         let (root, executable, base) = try fixture(), owner = AgentLifecycleCoordinator()
         var env = base.environmentOverrides; env["MILK_COMPAT_HANG"] = "1"
-        let runtime = PiRuntimeService(resources: base.resources, environmentOverrides: env)
+        // Contained probes cannot write a test log into unrelated persistent storage.
+        let runtime = PiRuntimeService(resources:base.resources,environmentOverrides:env,probeEnvironmentOverrides:["MILK_COMPAT_HANG":"1","MILK_PARITY_READY":"1"])
         let before = try ordinarySnapshot(root)
         let operation = Task { try await PiCompatibilityProbe.inspect(mode: .external(executable), runtime: runtime, lifecycle: owner) }
         let deadline = Date().addingTimeInterval(4)
-        while !records(root).contains(where: { $0["command"].string == "get_state" }) {
+        var probe: PiCompatibilityProbe?
+        while probe?.handshakeReceived != true {
+            probe=owner.owned.values.compactMap { $0.resource as? PiCompatibilityProbe }.first
             guard Date() < deadline else { operation.cancel(); _ = await operation.result; throw AgentError.message("Probe did not enter RPC") }
             await Task.yield()
         }
-        let launched = try XCTUnwrap(records(root).first { $0["kind"].string == "launch" })
+        let launched=try XCTUnwrap(probe?.execution)
         XCTAssertTrue(owner.owned.values.contains { $0.purpose == .compatibilityProbe })
-        XCTAssertTrue(launched["args"].array.compactMap(\.string).contains("--no-session"))
-        XCTAssertNotEqual(launched["agentDir"].string, root.appendingPathComponent("ordinary").path)
+        XCTAssertTrue(launched.arguments.contains("--no-session"))
+        XCTAssertNotEqual(launched.profile.path,root.appendingPathComponent("ordinary").path)
         operation.cancel()
         do { _ = try await operation.value; XCTFail("Cancelled probe returned a result") } catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertTrue(owner.owned.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(launched["cwd"].string)))
-        XCTAssertNotEqual(kill(Int32(try XCTUnwrap(launched["pid"].number)), 0), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launched.workspace.path))
+        XCTAssertNotEqual(kill(launched.pid, 0), 0)
         XCTAssertEqual(try ordinarySnapshot(root), before)
     }
 
     @MainActor func testExplicitExtensionPackageActionUsesSelectedExternalRuntime() async throws {
-        let (root, executable, runtime) = try fixture(), owner = AgentLifecycleCoordinator()
+        let (root, executable, original) = try fixture(), owner = AgentLifecycleCoordinator()
+        var env=original.environmentOverrides
+        let log=root.appendingPathComponent("ordinary/package-proof.jsonl")
+        env["MILK_COMPAT_LOG"]=log.path
+        let runtime=PiRuntimeService(resources:original.resources,environmentOverrides:env,probeEnvironmentOverrides:["MILK_COMPAT_LOG":log.path,"MILK_PARITY_READY":"1"])
         let source = root.appendingPathComponent("trusted.ts")
         try Data("export default function() {}".utf8).write(to: source)
         let service = ExtensionService(agentDirectory: root.appendingPathComponent("ordinary"), runtime: runtime)
         service.lifecycle = owner; service.runtimeSelection = { .external(executable) }
         try await service.installLocalRegistration(source)
-        let command = try XCTUnwrap(records(root).first { $0["args"].array.first?.string == "install" })
+        let entries=try Data(contentsOf:log).split(separator:10).map { try JSONDecoder().decode(JSONValue.self,from:Data($0)) }
+        let command = try XCTUnwrap(entries.first { $0["args"].array.first?.string == "install" })
         XCTAssertEqual(command["args"].array.compactMap(\.string), ["install", source.path, "--no-approve"])
-        XCTAssertEqual(command["agentDir"].string, root.appendingPathComponent("ordinary").path)
+        XCTAssertEqual(command["agentDir"].string, try SandboxPathResolver().resolve(root.appendingPathComponent("ordinary")).canonicalURL.path)
         XCTAssertFalse(command["path"].string?.contains("PiRuntime/bin") == true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path)); XCTAssertTrue(owner.owned.isEmpty)
     }

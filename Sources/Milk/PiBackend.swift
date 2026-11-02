@@ -5,8 +5,13 @@ import UniformTypeIdentifiers
 @MainActor final class PiBackend: AgentBackend {
     var onEvent: ((AgentEvent) -> Void)?
     private let nativeExtensions: NativeExtensionManager?
+    private let extensionWorkerExecutable: URL?
     private var nativeSession: Int?
     private var nativeTasks: [String:Task<Void,Never>] = [:]
+    private let sandboxSettings: SandboxSettingsStore
+    private let sandboxProfiles: [SandboxProfileRoot]
+    private var sandbox: PiSandboxExecution?
+    private var discoveryDirectory: URL?
     private let discoveryOnly: Bool
     private let providerProfileIdentityLoader: @MainActor () throws -> String?
     private let providerConfigurationLoader: @MainActor () throws -> PiProviderConfiguration
@@ -46,12 +51,15 @@ import UniformTypeIdentifiers
     private func runtimeStatus(_ phase: AgentConnectionPhase, detail: String) -> RuntimeStatus {
         let record = resolvedLaunch?.installation
         let ownership: AgentRuntimeIdentity.Ownership = record?.ownership == .milkManaged ? .milkManaged : (bundled ? .applicationBundle : .external)
-        return .init(phase: phase, version: version, bundled: bundled, detail: detail,
+        return .init(phase: phase, version: version, bundled: bundled, detail: detail + (phase == .ready ? (sandboxSettings.configuration.enabled ? " · Sandbox ON" : " · Sandbox OFF (unenforced)") : ""),
                      runtimeIdentity: executable.map { .init(executable: $0, version: version, ownership: ownership, installation: record) }, compatibility: compatibility, dataProfile: resolvedLaunch?.dataProfile)
     }
-    init(runtime: PiRuntimeService = PiRuntimeService(), discoveryOnly: Bool = false, nativeExtensions: NativeExtensionManager? = nil,
+    init(sandboxSettings: SandboxSettingsStore, runtime: PiRuntimeService = PiRuntimeService(), discoveryOnly: Bool = false, nativeExtensions: NativeExtensionManager? = nil,
          configuration: AgentConfiguration = AgentConfiguration(), providerConfiguration: PiProviderConfiguration = .init(), providerConfigurationLoader: (@MainActor () throws -> PiProviderConfiguration)? = nil, providerProfileIdentityLoader: @escaping @MainActor () throws -> String? = { nil }, lifecycle: AgentLifecycleCoordinator? = nil,
+         sandboxProfiles: [SandboxProfileRoot] = [], extensionWorkerExecutable: URL? = nil,
          resolveLaunch: (@MainActor (PiRuntimeMode, AgentLifecycleCoordinator?) async throws -> PiLaunchContext)? = nil) {
+        self.extensionWorkerExecutable=extensionWorkerExecutable
+        self.sandboxSettings = sandboxSettings; self.sandboxProfiles = sandboxProfiles
         self.providerProfileIdentityLoader = providerProfileIdentityLoader
         self.providerConfigurationLoader = providerConfigurationLoader ?? { providerConfiguration }
         self.lifecycle = lifecycle; self.launchConfiguration = configuration; self.discoveryOnly = discoveryOnly; self.nativeExtensions = nativeExtensions
@@ -68,18 +76,44 @@ import UniformTypeIdentifiers
         self.workspace = workspace; bundled = configuration.runtime.isBundled
         onEvent?(.runtime(runtimeStatus(.starting, detail: "Starting Pi")))
         do {
-            let location = try await resolveLaunch(configuration.runtime, lifecycle)
+            let authority = SandboxLaunchAuthority(configuration: sandboxSettings.configuration, isValid: sandboxSettings.isValid, inactiveProfiles: sandboxProfiles, settings:sandboxSettings)
+            let selected = try await SandboxLaunchAuthority.$current.withValue(authority) { try await resolveLaunch(configuration.runtime, lifecycle) }
+            let location: PiLaunchContext
+            if discoveryOnly && sandboxSettings.configuration.enabled {
+                let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Inspection-" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let directory = try SandboxPathResolver().resolve(temporary).canonicalURL; discoveryDirectory = directory
+                var env = selected.environment; env["PI_CODING_AGENT_DIR"] = directory.path; env["HOME"] = directory.path
+                location = .init(installation: selected.installation, executable: selected.executable, version: selected.version, integration: selected.integration,
+                    supportPaths: selected.supportPaths, environment: env, dataProfile: .init(directory: directory, ownership: .ephemeralMilk), compatibility: selected.compatibility, environmentOverrides: selected.environmentOverrides, toolchain: selected.toolchain,executableClosure:selected.executableClosure)
+            } else { location = selected }
             try checkActivation(token)
             resolvedLaunch = location; executable = location.executable; version = location.version
             compatibility = location.compatibility; bundled = location.bundled
-            var environment = location.environment
+            var environment = try PiEnvironment.runtime(source:location.environment,explicit:location.environmentOverrides,profile:location.dataProfile,support:location.supportPaths)
+            if sandboxSettings.configuration.enabled { environment["PI_CODING_AGENT_DIR"] = try SandboxPathResolver().resolve(location.dataProfile.directory).canonicalURL.path }
             environment["MILK_PERMISSION_MODE"] = configuration.defaultPermission.rawValue
             if discoveryOnly { environment["MILK_PREVIEW_DISCOVERY"] = "1" }
             else { environment.removeValue(forKey: "MILK_PREVIEW_DISCOVERY") }
+            var sandboxProfile: String?
+            do {
+                let settings = sandboxSettings
+                let owner = lifecycle?.sandboxGrants ?? SandboxGrantStore()
+                let activation = AgentResourceOwnership.current?.activation ?? AgentActivation(agentID: .pi, workspace: workspace, sessionID: session.id)
+                if AgentResourceOwnership.current == nil { guard owner.register(activation) else { throw CancellationError() } }
+                let execution = try PiSandboxExecution(location: location, settings: settings, grants: owner, activation: activation,
+                    mode: configuration.defaultPermission, purpose: discoveryOnly ? .previewInspection : .conversation, inactiveProfiles: sandboxProfiles + (discoveryOnly ? [.init(id: "inspection-source", agentID: .pi, url: selected.dataProfile.directory, ownership: selected.dataProfile.ownership == .sharedExisting ? .existing : .managed)] : []), nativeExtensions:discoveryOnly ? nil : nativeExtensions, extensionWorkerExecutable:extensionWorkerExecutable)
+                execution.event = { [weak self] in self?.onEvent?($0) }
+                execution.invalidated = { [weak self] in guard let self else { return }; self.client.shutdown(); self.onEvent?(.runtime(self.runtimeStatus(.failed, detail: "Sandbox settings changed. Reconnect to apply the new policy."))) }
+                sandbox = execution
+                if execution.enabled { environment["TMPDIR"] = execution.runtimeTemporaryDirectory.path }
+                sandboxProfile = try execution.runtimeProfile()
+                if execution.enabled { environment["MILK_SANDBOX_ON"] = "1" } else { environment.removeValue(forKey: "MILK_SANDBOX_ON") }
+            }
             // Prevent startup catalog refreshes/self updates; the binary and model capabilities stay versioned.
             environment["PI_OFFLINE"] = "1"
             environment.removeValue(forKey:"MILK_NATIVE_CATALOG")
-            if !discoveryOnly, let nativeExtensions { environment["MILK_NATIVE_CATALOG"]=nativeExtensions.catalogURL.path }
+            if !discoveryOnly, nativeExtensions != nil { environment["MILK_NATIVE_CATALOG"]=sandbox?.nativeCatalogURL.path }
             let providerConfiguration = try providerConfigurationLoader()
             try PiProviderSupport.apply(providerConfiguration, directory: location.dataProfile.directory, environment: &environment, profile: providerProfileIdentityLoader())
             var arguments = ["--mode", "rpc", "--offline", "-e", location.integration.path]
@@ -87,21 +121,24 @@ import UniformTypeIdentifiers
                 arguments += ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--tools", "read,grep,find,ls"]
             } else if let file = session.sessionFile {
                 if location.dataProfile.ownership == .milkManaged {
-                    let path = URL(fileURLWithPath: file).resolvingSymlinksInPath().path
-                    guard path.hasPrefix(location.dataProfile.directory.resolvingSymlinksInPath().path + "/") else {
+                    let path = try SandboxPathResolver().resolve(URL(fileURLWithPath: file)).canonicalURL.path
+                    guard path.hasPrefix(try SandboxPathResolver().resolve(location.dataProfile.directory).canonicalURL.path + "/") else {
                         throw AgentError.message("This session belongs to a different Pi profile. Select its original Pi setup to resume it.")
                     }
                 }
                 guard FileManager.default.fileExists(atPath: file) else { throw AgentError.message("The saved Pi session file is missing. Reopen another session or create one.") }
-                arguments += ["--session", file]
+                let admittedFile = sandboxSettings.configuration.enabled ? try SandboxPathResolver().resolve(URL(fileURLWithPath: file)).canonicalURL.path : file
+                arguments += ["--session", admittedFile]
             } else { arguments += ["--session-id", session.backendID, "--name", session.title] }
             client.onRecord = { [weak self] in self?.consume($0) }
             client.onFailure = { [weak self] text in
                 guard let self else { return }
-                self.dismissDialogs(); self.onEvent?(.runtime(self.runtimeStatus(.failed, detail: text)))
+                self.sandbox?.shutdown(); self.dismissDialogs(); self.onEvent?(.runtime(self.runtimeStatus(.failed, detail: text)))
                 self.onEvent?(.failure(text))
             }
-            try client.launch(executable: location.executable, arguments: arguments, workspace: workspace, environment: environment)
+            guard location.executableClosure?.revalidated() != false else { throw AgentError.message("Pi executable closure changed before startup.") }
+            let command=location.executableClosure?.command(arguments) ?? (location.executable,arguments)
+            try client.launch(executable:command.0,arguments:command.1, workspace: workspace, environment: environment, sandboxProfile: sandboxProfile, redactedEnvironmentKeys: PiEnvironment.referencedVariables(profile:location.dataProfile.directory),sandboxEnabled:sandboxSettings.configuration.enabled)
             if providerConfiguration.provider == .local, let selected = providerConfiguration.local.selectedModel {
                 _ = try await client.request("set_model", ["provider": .string(PiProviderSupport.providerID), "modelId": .string(selected)])
             }
@@ -122,6 +159,7 @@ import UniformTypeIdentifiers
             compatibility = PiCompatibilityPolicy.verified(version: location.version)
             onEvent?(.runtime(runtimeStatus(.ready, detail: "Pi ready")))
         } catch {
+            sandbox?.shutdown()
             if let error = error as? AgentCompatibilityError { compatibility = error.result; version = error.result.version }
             client.shutdown()
             if token == runGeneration { onEvent?(.runtime(runtimeStatus(.failed, detail: error.localizedDescription))) }
@@ -199,6 +237,7 @@ import UniformTypeIdentifiers
         }
     }
     func stop() async throws {
+        sandbox?.cancelOperations()
         try await clearQueue()
         for dialog in Array(dialogs.values) { try respond(dialog, value: nil, confirmed: nil, cancelled: true) }
         _ = try await client.request("abort", timeout: 60)
@@ -215,14 +254,21 @@ import UniformTypeIdentifiers
         _ = try await client.request("set_thinking_level", ["level": .string(effort)])
         try await refresh()
     }
+    var permissionChangesRequireRestart: Bool { sandboxSettings.configuration.enabled }
     func setPermission(_ mode: ComposerPermissionMode) async throws {
+        if permissionChangesRequireRestart {
+            guard mode == launchConfiguration.defaultPermission else { throw AgentError.message("Changing permission mode requires a fresh fixed runtime sandbox.") }
+            return
+        }
         _ = try await client.request("prompt", ["message": .string("/milk-permission \(mode.rawValue)")])
+        sandbox?.updateMode(mode)
     }
     func rename(_ title: String) async throws {
         _ = try await client.request("set_session_name", ["name": .string(title)])
         onEvent?(.sessionName(title))
     }
     func respond(_ approval: AgentApproval, response: AgentDialogResponse) throws {
+        if approval.origin == .milkSandbox || sandbox?.approvals.contains(approval.id) == true { try sandbox?.respond(approval, response: response); return }
         let value: String?, confirmed: Bool?, cancelled: Bool
         switch response {
         case .value(let text): value = text; confirmed = nil; cancelled = false
@@ -238,8 +284,14 @@ import UniformTypeIdentifiers
         if let id = approval.activityID, var activity = activities[id] { activity.status = .running; activities[id] = activity; onEvent?(.activity(activity)) }
         dialogs.removeValue(forKey: approval.id); onEvent?(.dismissApproval(approval.id))
     }
-    func shutdown() { for task in maintenanceTasks.values { task.cancel() }; maintenanceTasks = [:]; for task in nativeTasks.values { task.cancel() }; nativeTasks=[:]; runGeneration = UUID(); snapshotTask?.cancel(); dismissDialogs(); onEvent = nil; client.onRecord = nil; client.onFailure = nil; client.shutdown() }
-    func shutdownAndWait() async throws { shutdown(); try await client.shutdownAndWait() }
+    func startManagedJob(_ request: AgentManagedJobRequest) async throws -> AgentManagedJob {
+        guard let sandbox else { throw AgentError.message("Sandbox job controller is unavailable.") }; return try await sandbox.startManagedJob(request)
+    }
+    func shutdown() { sandbox?.shutdown(); for task in maintenanceTasks.values { task.cancel() }; maintenanceTasks = [:]; for task in nativeTasks.values { task.cancel() }; nativeTasks=[:]; runGeneration = UUID(); snapshotTask?.cancel(); dismissDialogs(); onEvent = nil; client.onRecord = nil; client.onFailure = nil; client.shutdown() }
+    func shutdownAndWait() async throws {
+        shutdown(); await sandbox?.shutdownAndWait(); try await client.shutdownAndWait()
+        if let directory = discoveryDirectory { try? FileManager.default.removeItem(at: directory); discoveryDirectory = nil }
+    }
     private func dismissDialogs() { editingApproval = nil; for id in dialogs.keys { onEvent?(.dismissApproval(id)) }; dialogs = [:] }
 
     private static func model(_ value: JSONValue) -> AgentModel? {
@@ -376,6 +428,21 @@ import UniformTypeIdentifiers
     }
     private func handleUI(_ value: JSONValue) {
         let method = value["method"].string ?? ""
+        if method == "input", let text = value["title"].string, let data = text.data(using: .utf8),
+           let request = try? JSONDecoder().decode(JSONValue.self, from: data), request["milkSandbox"].number == 1, let id = value["id"].string {
+            nativeTasks[id] = Task { [weak self] in
+                guard let self else { return }; defer { self.nativeTasks[id] = nil }
+                let result: JSONValue
+                do { guard let sandbox = self.sandbox else { throw AgentError.message("Sandbox bridge is unavailable.") }; result = try await sandbox.handle(request) }
+                catch { result = .object(["error": .string(error.localizedDescription)]) }
+                if !Task.isCancelled { try? self.client.write(["type": .string("extension_ui_response"), "id": .string(id), "value": .string(result.encodedString)]) }
+            }
+            return
+        }
+        if method == "setStatus", ["milk-sandbox-cancel", "milk-sandbox-finish"].contains(value["statusKey"].string ?? ""),
+           let text = value["statusText"].string, let data = text.data(using: .utf8), let request = try? JSONDecoder().decode(JSONValue.self, from: data) {
+            sandbox?.control(request, cancel: value["statusKey"].string == "milk-sandbox-cancel"); return
+        }
         if method == "input", let text=value["title"].string, let data=text.data(using:.utf8),
            let request=try? JSONDecoder().decode(JSONValue.self,from:data), request["milkNativeBridge"].number == 1, let id=value["id"].string {
             nativeTasks[id]=Task { [weak self] in
@@ -383,11 +450,10 @@ import UniformTypeIdentifiers
                 defer { self.nativeTasks[id]=nil }
                 let result: JSONValue
                 do {
-                    guard let manager=self.nativeExtensions, let workspace=self.workspace, let session=self.nativeSession else { throw AgentError.message("Native extension bridge is unavailable.") }
+                    guard let manager=self.nativeExtensions, let workspace=self.workspace, self.nativeSession != nil else { throw AgentError.message("Native extension bridge is unavailable.") }
                     let output: String
                     if let prompt=request["prompt"].string { output=try manager.piPrompt(prompt,workspace:workspace) }
-                    else if let toolID=request["contribution"].string { output=try await manager.invokePiTool(id:toolID,arguments:Data(request["arguments"].encodedString.utf8),workspace:workspace,session:session) }
-                    else { throw AgentError.message("Invalid native bridge request.") }
+                    else { throw AgentError.message("Agent effects require the worker executor protocol. Legacy native invocation is unavailable.") }
                     result = .object(["result":.string(output)])
                 } catch { result = .object(["error":.string(error.localizedDescription)]) }
                 if !Task.isCancelled { try? self.client.write(["type":.string("extension_ui_response"),"id":.string(id),"value":.string(result.encodedString)]) }

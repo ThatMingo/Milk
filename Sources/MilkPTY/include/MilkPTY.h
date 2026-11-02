@@ -15,3 +15,7 @@ int milk_terminal_reap(pid_t pid, int *status);
 
 // Exact owned process group; keep its leader unreaped until cleanup completes. Counts live members only.
 int milk_process_group_signal(pid_t leader, int signal_number);
+
+// Private pipes + dedicated process group; caller retains leader until final signals/reap.
+pid_t milk_sandbox_spawn(const char *executable, char *const argv[], char *const env[],
+                         const char *cwd, int input, int output, int errors);

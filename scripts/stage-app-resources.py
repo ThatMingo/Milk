@@ -18,7 +18,8 @@ def stage(source: pathlib.Path, destination: pathlib.Path) -> None:
     # build.sh uses a fresh staging app. Fail rather than retain an old bundled agent.
     if (destination / 'PiRuntime').exists():
         raise RuntimeError('Resource staging must not contain a bundled Pi runtime')
-    shutil.copy2(source / 'Runtime/MilkPiIntegration.ts', destination / 'MilkPiIntegration.ts')
+    for name in ('MilkPiIntegration.ts', 'MilkSandboxBridge.ts', 'MilkSandboxWorker.ts'):
+        shutil.copy2(source / 'Runtime' / name, destination / name)
     for name in NOTICES:
         target = destination / 'ThirdPartyNotices' / name
         target.parent.mkdir(parents=True, exist_ok=True)

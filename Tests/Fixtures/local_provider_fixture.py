@@ -13,14 +13,23 @@ class Handler(BaseHTTPRequestHandler):
         auth=self.headers.get('Authorization','')
         if mode=='none': return 'Authorization' not in self.headers
         if mode=='key': return auth=='Bearer fixture-local-secret'
+        if mode=='key2': return auth=='Bearer fixture-replacement-secret'
+        if mode=='revoked': return False
         if mode=='external-key': return auth=='Bearer external-fixture-secret'
         return True
     def record(self, model=None):
         log=os.environ.get('MILK_FIXTURE_REQUEST_LOG')
         if log:
             with open(log,'a') as stream:
-                stream.write(json.dumps({'method':self.command,'path':self.path,'model':model,'has_auth':'Authorization' in self.headers,'placeholder':self.headers.get('Authorization')=='Bearer local-no-auth'})+'\n')
+                stream.write(json.dumps({'method':self.command,'path':self.path,'model':model,'has_auth':'Authorization' in self.headers,'placeholder':self.headers.get('Authorization')=='Bearer local-no-auth','accepted':self.authorized(),'auth_generation':{'Bearer fixture-local-secret':1,'Bearer fixture-replacement-secret':2}.get(self.headers.get('Authorization'),0)})+'\n')
     def do_GET(self):
+        if os.environ.get('MILK_FIXTURE_REDIRECT') == '1' and self.path == '/v1/models':
+            self.record()
+            self.send_response(307)
+            self.send_header('Location', '/redirect-target')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         self.record()
         if not self.authorized(): self.send_error(401); return
         if self.path.startswith('/unauthorized/'):
@@ -56,8 +65,11 @@ class Handler(BaseHTTPRequestHandler):
             preview_inspection='Inspect this project to determine its foreground local web development server' in original
             native_probe='native-tool-fixture' in original
             native_tools=[x.get('function',{}).get('name','') for x in body.get('tools',[]) if x.get('function',{}).get('name','').startswith('milk_')]
-            if native_probe and not is_tool:
-                selected=next((name for name in native_tools if name.endswith('_check')),None)
+            if not is_tool and content.startswith('sandbox-tool-fixture '):
+                name,args=json.loads(content[len('sandbox-tool-fixture '):])
+                chunk({'tool_calls':[{'index':0,'id':'sandbox-'+str(time.time_ns()),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]},'tool_calls')
+            elif native_probe and not is_tool:
+                selected=next((name for name in native_tools if (name.endswith('_check') or name.endswith('_status'))),None)
                 if selected:
                     chunk({'tool_calls':[{'index':0,'id':'native-call-'+str(time.time_ns()),'type':'function','function':{'name':selected,'arguments':'{}'}}]},'tool_calls')
                 else: chunk({'content':'Native tool unavailable'},'stop')

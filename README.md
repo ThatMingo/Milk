@@ -19,10 +19,13 @@ The canonical application version is in [VERSION](VERSION), targeting **Apple Si
 - **Terminal:** a native SwiftTerm terminal running your interactive login shell.
 - **Preview:** WebKit pages, local static HTML and project development servers.
   Framework previews use the project's own tools and dependencies.
-- **Settings:** appearance/editor preferences, agent installation management and
-  agent-owned provider configuration.
+- **Settings:** appearance/editor preferences, agent installation management,
+  agent-owned provider configuration and Sandbox permissions. Sandbox ON constrains
+  current supported agent runtimes, tools, probes, package/candidate execution and
+  managed jobs. Explicit OFF remains available; final release acceptance is separate.
 - **Native Milk extensions:** trusted `.milkext` packages can add UI, commands
-  and services through MilkExtensionKit.
+  and services through MilkExtensionKit. Agent-callable tools run in separate
+  Milk sandbox workers; native UI remains trusted.
 
 Files, Git, Terminal, normal Preview and retained session browsing remain usable
 without a coding agent. Agent chat and agent-assisted Preview require a working
@@ -110,8 +113,9 @@ adapter contract, migration, secure storage, and Pi limitations.
 ## Extensions
 
 Native Milk extensions use MilkExtensionKit for host UI and services. Pi extensions
-are separate resources loaded by Pi. Native extensions execute inside Milk with
-user privileges and require explicit trust; capabilities are not an OS sandbox.
+are separate resources loaded by Pi. Native UI executes inside Milk with user privileges and requires explicit trust;
+agent-callable extension tools execute in separate sandbox workers. Native UI capabilities
+alone are not an OS sandbox.
 See the [extension developer guide](docs/EXTENSION_DEVELOPMENT.md) and the
 [example source](Examples/Extensions/OMLXStatusExample/).
 
@@ -124,8 +128,14 @@ source snapshot ready. This is separate from a signed downloadable app release.
 [final acceptance](docs/PROVIDER_FINAL_ACCEPTANCE.md): 183/183 regression tests,
 27/27 focused checks and 12/12 native acceptance assertions.
 
-- Developer ID signing, notarization, stapling and clean-machine release
-  acceptance are not complete.
+The Sandbox/security implementation and technical acceptance are complete under the
+approved private-distribution policy. The [Sandbox acceptance report](docs/SANDBOX_ACCEPTANCE.md)
+records automated/current-host proof and measured ordinary login-Keychain behavior.
+Ad-hoc private builds support credential storage; Developer ID/notarization are optional.
+Live-provider and additional-host/manual-human coverage remain explicitly scoped.
+
+- Private/unnotarized builds may require macOS Open Anyway. Developer ID signing,
+  notarization and stapling are optional improvements and have not been performed.
 - Managed downloaded runtime provenance and Bun/native matching-source,
   reconstruction, relinking and distribution questions remain under review.
   Removing runtime binaries from Milk.app does not establish release clearance.

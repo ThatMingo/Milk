@@ -62,6 +62,10 @@ import CryptoKit
 @MainActor private final class Phase6ProbeBox { var probes=0;var badProbe=false;var badDownload=false }
 
 final class AgentManagerSettingsTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     @MainActor func testBundledMigrationIsMetadataOnlyIdempotentAndPreservesProviderConfiguration() throws {
         let fixture = try Phase6Fixture(self)
         let config = AgentConfiguration()

@@ -157,3 +157,29 @@ profile identity identifies the actual resolved persistent Pi directory.
 
 Verification and exact file inventory are in the final correction section of
 [Phase 3](PROVIDER_PROFILE_PHASE_3.md#final-existing-profile-identity-correction).
+
+## Current environment construction
+
+Phase 4 resolves the selected HOME/profile before filtering launch variables. Managed
+and Existing directory identity, settings hashes, native sessions and credential scope
+are unchanged. Pi's selected profile is explicit in runtime environment; ephemeral
+version/compatibility work receives its own HOME/TMP/profile and no provider keys.
+Runtime-only custom provider overrides are not helper inputs. Sandbox ON Preview's
+private inspection profile still covers Local; user-owned auth/OAuth files from an
+Existing profile are not duplicated to make other Preview providers available.
+
+
+Version/compatibility/candidate checks use purpose-private HOME/TMP/cache/profile
+state and no provider key. They never borrow the selected user's auth/profile files.
+Local package install/remove explicitly targets the selected profile while keeping
+source input read-only and temporary state private. Protected/inactive/Project Read
+Only rules remain stronger. Sandbox ON Preview inspection uses private HOME/profile;
+Existing-only configured-provider authentication is not copied into it. Explicit OFF
+retains the unenforced compatibility path. See [purpose contracts](SANDBOX_PURPOSES.md).
+
+
+See [Sandbox final acceptance](SANDBOX_ACCEPTANCE.md) for the current-host automated
+and packaged-runtime evidence and the exact unpassed release prerequisites. Synthetic
+provider tests do not establish live-account or multiple-host acceptance. Normal
+login-Keychain persistence/recovery is measured in the ad-hoc app; Developer ID/
+notarization are optional distribution improvements, not credential prerequisites.

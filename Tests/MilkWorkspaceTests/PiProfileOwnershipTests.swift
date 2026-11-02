@@ -2,6 +2,10 @@ import XCTest
 @testable import Milk
 
 final class PiProfileOwnershipTests: XCTestCase {
+    private var credentials: CredentialTestStore!
+    override func setUp() { super.setUp(); credentials = CredentialTestStore() }
+    override func tearDown() { credentials.restore(); credentials = nil; super.tearDown() }
+
     @MainActor func testProviderStateFollowsCanonicalDirectoryNotExecutable() async throws {
         let fixture = try Phase6Fixture(self), manager = fixture.manager
         try manager.migrateLegacySelection(.bundled)
@@ -133,7 +137,7 @@ final class PiProfileOwnershipTests: XCTestCase {
         XCTAssertEqual(launch.environment["PI_CODING_AGENT_DIR"], owned.directory.path)
         XCTAssertEqual(launch.dataProfile, owned)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let backend = PiBackend(resolveLaunch: { _, _ in launch })
+        let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), resolveLaunch: { _, _ in launch })
         var sessionDirectory: URL?
         backend.onEvent = { event in if case .sessionDirectory(let path) = event { sessionDirectory = path } }
         do {

@@ -20,6 +20,7 @@ public struct OwnedExtensionCommand: Identifiable {
     public let item: ExtensionCommand
 }
 public struct OwnedPiTool: Identifiable {
+    public let registration = UUID()
     public let id: String
     public let owner: String
     public let item: ExtensionPiTool
@@ -129,7 +130,6 @@ public struct OwnedPiTool: Identifiable {
     var extensionID: String { lease.id }
     var capabilities: Set<ExtensionCapability> { lease.grants }
     var contributions: any ExtensionContributions { self }
-    var commandToolTokens: [String:String] = [:]
     var serviceDefinitions: [String:ExtensionBackgroundService] = [:]
     var serviceTasks: [String:Task<Void,Never>] = [:]
     let processHost: ExtensionProcessHost
@@ -158,19 +158,6 @@ public struct OwnedPiTool: Identifiable {
     }
     func action(at point: ExtensionPoint, _ item: ExtensionActionContribution) throws -> ExtensionRegistration { try lease.check(); return try registry.addAction(item,owner:extensionID,point:point) }
     func command(_ item: ExtensionCommand) throws -> ExtensionRegistration { try lease.check(); return try registry.addCommand(item,owner:extensionID) }
-    func piCommand(_ item: ExtensionCommand) throws -> ExtensionRegistration {
-        try lease.check(.pi)
-        let command=try self.command(item)
-        do {
-            let tool=ExtensionPiTool(id:"command_"+item.name,description:"Run /"+item.name+": "+item.summary,parameters:Data(#"{"type":"object","properties":{"arguments":{"type":"string"}},"required":["arguments"],"additionalProperties":false}"#.utf8)) { data,_ in
-                let json=try JSONSerialization.jsonObject(with:data) as? [String:Any]
-                try await item.perform(json?["arguments"] as? String ?? ""); return "Command completed."
-            }
-            _ = try piTool(tool)
-            commandToolTokens[command.id]=ExtensionContributionRegistry.identifier(owner:extensionID,kind:"piTool",local:tool.id)
-            return command
-        } catch { registry.remove(command.id,owner:extensionID); throw error }
-    }
     func piTool(_ item: ExtensionPiTool) throws -> ExtensionRegistration { try lease.check(.pi); return try registry.addTool(item,owner:extensionID,granted:capabilities) }
     func prompt(id: String, text: String) throws -> ExtensionRegistration { try lease.check(.pi); return try registry.addPrompt(id:id,text:text,owner:extensionID) }
     func service(_ item: ExtensionBackgroundService) throws -> ExtensionRegistration {
@@ -191,7 +178,7 @@ public struct OwnedPiTool: Identifiable {
         for (id,item) in serviceDefinitions where item.workspaceScoped { serviceTasks.removeValue(forKey:id)?.cancel(); startService(id) }
         for observer in lease.observers { observer(url) }
     }
-    func remove(_ token: ExtensionRegistration) { if let tool=commandToolTokens.removeValue(forKey:token.id) { registry.remove(tool,owner:extensionID) }; serviceTasks.removeValue(forKey:token.id)?.cancel(); serviceDefinitions[token.id]=nil; registry.remove(token.id,owner:extensionID) }
+    func remove(_ token: ExtensionRegistration) { serviceTasks.removeValue(forKey:token.id)?.cancel(); serviceDefinitions[token.id]=nil; registry.remove(token.id,owner:extensionID) }
     func revoke() {
         lease.active=false; lease.observers=[]
         for task in serviceTasks.values { task.cancel() }; serviceTasks=[:]; serviceDefinitions=[:]

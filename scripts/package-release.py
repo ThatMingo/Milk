@@ -37,6 +37,14 @@ def system_tuple(value):
     return parts + (0,) * (3 - len(parts))
 
 
+def validate_private_paths(app, prefixes=None):
+    prefixes = prefixes if prefixes is not None else (str(ROOT), str(Path.home()))
+    needles = [str(prefix).encode() for prefix in prefixes if str(prefix) != '/']
+    for path in app.rglob('*'):
+        if path.is_file() and any(needle in path.read_bytes() for needle in needles):
+            raise ValueError('Private build path remains in artifact: ' + str(path.relative_to(app)))
+
+
 def bundle_metadata(app, expected):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     version, build = expected
@@ -52,6 +60,7 @@ def bundle_metadata(app, expected):
     if len(deployment) != 1 or system_tuple(deployment[0]) != system_tuple(minimum):
         raise ValueError('Bundle minimum macOS version disagrees with Mach-O deployment target')
     run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(app))
+    validate_private_paths(app)
     return dict(version=version, build=int(build), platform='macOS', architecture='arm64',
                 minimumSystemVersion=minimum, asset=f'Milk-{version}-macOS-arm64.zip',
                 releaseTag=f'v{version}')

@@ -118,3 +118,23 @@ int milk_process_group_signal(pid_t leader, int sig) {
     free(pids);
     return remaining;
 }
+
+pid_t milk_sandbox_spawn(const char *executable, char *const argv[], char *const env[],
+                         const char *cwd, int input, int output, int errors) {
+    posix_spawn_file_actions_t actions; posix_spawnattr_t attr;
+    int error = posix_spawn_file_actions_init(&actions); if(error){errno=error;return -1;}
+    error = posix_spawnattr_init(&attr);
+    if(error){posix_spawn_file_actions_destroy(&actions);errno=error;return -1;}
+    error = posix_spawn_file_actions_adddup2(&actions,input,0);
+    if(!error)error=posix_spawn_file_actions_adddup2(&actions,output,1);
+    if(!error)error=posix_spawn_file_actions_adddup2(&actions,errors,2);
+    if(!error)error=posix_spawn_file_actions_addchdir_np(&actions,cwd);
+    if(!error)error=posix_spawnattr_setpgroup(&attr,0);
+    sigset_t defaults,mask;sigfillset(&defaults);sigemptyset(&mask);
+    if(!error)error=posix_spawnattr_setsigdefault(&attr,&defaults);
+    if(!error)error=posix_spawnattr_setsigmask(&attr,&mask);
+    if(!error)error=posix_spawnattr_setflags(&attr,POSIX_SPAWN_CLOEXEC_DEFAULT|POSIX_SPAWN_SETPGROUP|POSIX_SPAWN_SETSIGDEF|POSIX_SPAWN_SETSIGMASK);
+    pid_t pid=-1;if(!error)error=posix_spawn(&pid,executable,&actions,&attr,argv,env);
+    posix_spawn_file_actions_destroy(&actions);posix_spawnattr_destroy(&attr);
+    if(error){errno=error;return -1;}return pid;
+}

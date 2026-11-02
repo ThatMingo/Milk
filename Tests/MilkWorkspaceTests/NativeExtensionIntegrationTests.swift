@@ -95,11 +95,16 @@ final class NativeExtensionIntegrationTests: XCTestCase {
         let port=try XCTUnwrap(Int(String(decoding:portPipe.fileHandleForReading.availableData,as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)))
         let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agentDir.path,"PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
         var configuration = AgentConfiguration(); var provider = PiProviderConfiguration(); provider.provider = .local; provider.local.endpoint=URL(string:"http://127.0.0.1:\(port)")!; provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel="milk-fixture"
-        let backend=PiBackend(runtime:runtime,nativeExtensions:manager,providerConfiguration:provider); defer { backend.shutdown() }
-        var settled=0, failures:[String]=[], piApprovals=0
+        let suite="Milk.Native.Worker."+UUID().uuidString, defaults=UserDefaults(suiteName:suite)!
+        defer { defaults.removePersistentDomain(forName:suite) }
+        var policy=SandboxConfiguration(home:base); policy.protectedLocations=[]
+        defaults.set(try JSONEncoder().encode(policy),forKey:SandboxSettingsStore.key)
+        let backend=PiBackend(sandboxSettings:SandboxSettingsStore(defaults:defaults,home:base), runtime:runtime,nativeExtensions:manager,providerConfiguration:provider,extensionWorkerExecutable:project.appendingPathComponent(".build/arm64-apple-macosx/debug/MilkExtensionWorker")); defer { backend.shutdown() }
+        var settled=0, failures:[String]=[], piApprovals=0, outputs:[String]=[]
         backend.onEvent={ event in
             switch event {
             case .settled: settled += 1
+            case .activity(let activity): outputs.append(activity.output)
             case .approval(let request): piApprovals += 1; try? backend.respond(request,value:"Allow Once",confirmed:nil,cancelled:false)
             case .failure(let message): failures.append(message)
             case .extensionProblem(let message): failures.append(message)
@@ -114,14 +119,15 @@ final class NativeExtensionIntegrationTests: XCTestCase {
             while settled < expected { guard Date() < deadline else { throw AgentError.message("Native Pi timeout: \(failures)") }; try await Task.sleep(nanoseconds:30_000_000) }
         }
         try await backend.send(.init(text:"native-tool-fixture denied",attachments:[])); try await waitForSettled(1)
-        XCTAssertEqual(loader.instance.calls,0); XCTAssertEqual(hostApprovals,1); XCTAssertEqual(piApprovals,1)
+        XCTAssertEqual(loader.instance.calls,0); XCTAssertEqual(hostApprovals,0); XCTAssertEqual(piApprovals,1,outputs.joined(separator:"\n"))
         manager.authorize={ _,_,_,_ in hostApprovals += 1 }
         try await backend.send(.init(text:"native-tool-fixture allowed",attachments:[])); try await waitForSettled(2)
-        XCTAssertEqual(loader.instance.calls,1); XCTAssertEqual(hostApprovals,2); XCTAssertEqual(piApprovals,2)
+        XCTAssertEqual(loader.instance.calls,0); XCTAssertEqual(hostApprovals,0); XCTAssertEqual(piApprovals,2,outputs.joined(separator:"\n"))
+        XCTAssertTrue(outputs.contains { $0.contains("oMLX · Not checked") },outputs.joined(separator:"\n"))
         try await manager.setEnabled(review.manifest.id,false)
         try await Task.sleep(nanoseconds:350_000_000)
         try await backend.send(.init(text:"native-tool-fixture removed",attachments:[])); try await waitForSettled(3)
-        XCTAssertEqual(loader.instance.calls,1); XCTAssertEqual(hostApprovals,2); XCTAssertTrue(failures.isEmpty,failures.joined(separator:"\n"))
+        XCTAssertEqual(loader.instance.calls,0); XCTAssertEqual(hostApprovals,0); XCTAssertTrue(failures.isEmpty,failures.joined(separator:"\n"))
         try await backend.shutdownAndWait(); await manager.shutdown()
     }
     @MainActor func testExtensionApprovalsUseExistingSessionPolicyAndCancelOnShutdown() async throws {
@@ -146,8 +152,8 @@ final class NativeExtensionIntegrationTests: XCTestCase {
 @MainActor private final class BridgeProbe: MilkExtension {
     var calls=0
     override func activate(context: any ExtensionContext) async throws {
-        try context.contributions.piTool(.init(id:"check",description:"Native test probe",parameters:Data(#"{"type":"object","properties":{},"additionalProperties":false}"#.utf8)) { [weak self] _,_ in self?.calls += 1; return "Real native bridge result" })
-        try context.contributions.piCommand(.init(name:"native-check",summary:"Bridge command") { [weak self] _ in self?.calls += 1 })
+        try context.contributions.piTool(.init(id:"status",description:"Native test probe",parameters:Data(#"{"type":"object","properties":{},"additionalProperties":false}"#.utf8)))
+        try context.contributions.command(.init(name:"native-check",summary:"Bridge command") { [weak self] _ in self?.calls += 1 })
     }
 }
 @MainActor private final class BridgeProbeLoader: NativeExtensionLoading {

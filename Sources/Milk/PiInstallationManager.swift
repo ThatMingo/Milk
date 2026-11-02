@@ -8,6 +8,7 @@ import Combine
     let store: AgentInstallationStore
     let lifecycle: AgentLifecycleCoordinator
     let runtime: PiRuntimeService
+    let sandboxSettings: SandboxSettingsStore
     let catalog: PiInstallationCatalog
     private let download: Download
     private let probe: Probe
@@ -20,8 +21,9 @@ import Combine
 
     init(store: AgentInstallationStore? = nil, lifecycle: AgentLifecycleCoordinator,
          runtime: PiRuntimeService = PiRuntimeService(), catalog: PiInstallationCatalog = .standard,
-         notices: URL? = nil, download: @escaping Download = PiInstallationFiles.download,
+         notices: URL? = nil, sandboxSettings: SandboxSettingsStore? = nil, download: @escaping Download = PiInstallationFiles.download,
          probe: @escaping Probe = { try await PiCompatibilityProbe.inspect(installation: $0, runtime: $1, lifecycle: $2) }) {
+        self.sandboxSettings=sandboxSettings ?? SandboxSettingsStore()
         self.store = store ?? AgentInstallationStore(); self.lifecycle = lifecycle; self.runtime = runtime; self.catalog = catalog
         self.notices = notices ?? runtime.resources.appendingPathComponent("ThirdPartyNotices")
         self.download = download; self.probe = probe
@@ -31,6 +33,17 @@ import Combine
                 guard let self, !self.busy else { return }
                 do { try await self.activatePending() } catch { self.recordFailure(error) }
             }
+        }
+    }
+    var sandboxProfiles: [SandboxProfileRoot] {
+        var environment=ProcessInfo.processInfo.environment; environment.merge(runtime.environmentOverrides) { _, value in value }
+        return [.init(id:"purpose-managed-store",agentID:.pi,url:store.root.appendingPathComponent("profile"),ownership:.managed),
+                .init(id:"purpose-existing-store",agentID:.pi,url:PiProfile.existing(environment:environment).directory,ownership:.existing)]
+    }
+    private func inspect(_ record: AgentInstallationRecord, _ runtime: PiRuntimeService, _ owner: AgentLifecycleCoordinator) async throws -> AgentCompatibilityResult {
+        let authority=SandboxLaunchAuthority.capture(settings:sandboxSettings,profiles:sandboxProfiles)
+        return try await SandboxLaunchAuthority.$current.withValue(authority) {
+            let result=try await probe(record,runtime,owner); try authority.check(); return result
         }
     }
     private func enter() throws {
@@ -77,7 +90,7 @@ import Combine
         do {
             guard let value = store.state.external.first(where: { $0.installation.id == id }) else { throw AgentError.message("Unknown existing installation.") }
             try beginOperation("verifyExternal")
-            let report = try await probe(value.installation, runtime, lifecycle)
+            let report = try await inspect(value.installation, runtime, lifecycle)
             try store.commit { state in
                 if let index = state.external.firstIndex(where: { $0.installation.id == id }) { state.external[index].health = report; state.external[index].checkedAt = .now }
             }
@@ -123,7 +136,10 @@ import Combine
     }
     func resolve(legacy: PiRuntimeMode, owner: AgentLifecycleCoordinator?) async throws -> PiLaunchContext {
         let selected = try selectedInstallation() ?? PiLaunchResolver(runtime: runtime).installation(for: legacy)
-        return try await PiLaunchResolver(runtime: runtime).resolve(selected, lifecycle: owner, profile: profile(for: selected))
+        let authority=SandboxLaunchAuthority.capture(settings:sandboxSettings,profiles:sandboxProfiles)
+        return try await SandboxLaunchAuthority.$current.withValue(authority) {
+            try await PiLaunchResolver(runtime:runtime).resolve(selected,lifecycle:owner,profile:profile(for:selected))
+        }
     }
     func setAutoUpdate(_ enabled: Bool) throws {
         try enter(); defer { busy = false }
@@ -216,7 +232,7 @@ import Combine
         let candidateRecord = AgentInstallationRecord(id: id, agentID: .pi, ownership: .milkManaged, source: .milkApproved,
             executable: candidate.appendingPathComponent("pi"), expectedVersion: release.version, executableSHA256: release.files["pi"])
         try stage(.probing, "Checking Pi native RPC and Milk integration.")
-        let health = try await probe(candidateRecord, runtime, lifecycle)
+        let health = try await inspect(candidateRecord, runtime, lifecycle)
         try health.requireUsable(); try lease.check()
         guard health.version == release.version, health.adapterVersion == PiCompatibilityPolicy.adapterVersion else { throw AgentError.message("Candidate probe did not verify the pinned version/adapter.") }
         guard try PiInstallationFiles.inventory(candidate) == inventory else { throw AgentError.message("Candidate code changed during compatibility verification; it was not registered.") }
@@ -277,7 +293,7 @@ import Combine
         do {
             try beginOperation("verify")
             let value = try managed(id); try validate(value, requireHealth: false)
-            let report = try await probe(value.installation, runtime, lifecycle)
+            let report = try await inspect(value.installation, runtime, lifecycle)
             try store.commit { state in
                 if let i = state.managed.firstIndex(where: { $0.id == id }) { state.managed[i].health = report; state.managed[i].checkedAt = .now }
             }
@@ -358,7 +374,7 @@ import Combine
             try beginOperation("registerExternal")
             guard executable.isFileURL, executable.path.hasPrefix("/") else { throw AgentError.message("Choose an absolute external executable path.") }
             let record = PiLaunchResolver(runtime: runtime).installation(for: .external(executable))
-            let report = try await probe(record, runtime, lifecycle)
+            let report = try await inspect(record, runtime, lifecycle)
             try report.requireUsable()
             try store.commit { state in
                 state.external.removeAll { $0.installation.id == record.id }

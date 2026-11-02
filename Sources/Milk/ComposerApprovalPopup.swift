@@ -38,9 +38,14 @@ struct ComposerApprovalPopup: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label(request.command != nil ? "Pi wants to run a command" : request.title, systemImage: "hand.raised")
+                Label(request.origin != .milkSandbox && request.command != nil ? "Pi wants to run a command" : request.title, systemImage: "hand.raised")
                     .font(.system(size: 12, weight: .semibold)).lineLimit(2)
                 Spacer(minLength: 0)
+                if let deadline = request.sandboxDeadline {
+                    TimelineView(.periodic(from: .now, by: 1)) { time in
+                        Text("\(max(0, Int(ceil(deadline.timeIntervalSince(time.date)))))s").font(.system(size: 11, design: .monospaced)).foregroundStyle(MilkTheme.muted)
+                    }
+                }
                 if let risk = request.risk, !risk.isEmpty { Text(risk).font(.system(size: 10, weight: .medium)).foregroundStyle(MilkTheme.red) }
             }
             ScrollView {
@@ -55,9 +60,10 @@ struct ComposerApprovalPopup: View {
                             Text(command).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }.font(.system(size: 12, design: .monospaced)).padding(10)
                             .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 7))
-                    } else if let action = request.action, !action.isEmpty {
+                    } else if request.origin != .milkSandbox, let action = request.action, !action.isEmpty {
                         Text(action).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }
+                    if request.origin == .milkSandbox, let path = request.action { metadata("Path", value: path) }
                     if let directory = request.workingDirectory, !directory.isEmpty { metadata("In", value: (directory as NSString).abbreviatingWithTildeInPath) }
                     if let reason = request.reason, !reason.isEmpty { metadata("Why", value: reason) }
                     if let effect = request.effect, !effect.isEmpty { metadata("Effect", value: effect) }
@@ -99,7 +105,7 @@ struct ComposerApprovalPopup: View {
             Button("Allow Once") { agent.respond(request, session: presentation.session, confirmed: true) }.buttonStyle(MilkButtonStyle(bordered: true))
         } else {
             ForEach(request.options.filter { $0 != "Deny" && $0 != "Edit Command" && $0 != "Allow Once" }, id: \.self) { option in
-                Button(option == "Allow for Session" ? "For session" : option) { agent.respond(request, session: presentation.session, value: option) }
+                Button(option == "Allow for Session" && request.origin != .milkSandbox ? "For session" : option) { agent.respond(request, session: presentation.session, value: option) }
                     .buttonStyle(MilkButtonStyle()).accessibilityLabel(option)
             }
             if request.options.contains("Allow Once") {

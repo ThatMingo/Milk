@@ -31,7 +31,7 @@ final class SlashCommandPiTests: XCTestCase {
         let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["PI_CODING_AGENT_DIR":agent.path,"PATH":"/usr/bin:/bin:/usr/sbin:/sbin"])
         var configuration = AgentConfiguration(); var provider = PiProviderConfiguration(); provider.provider = .local; provider.local.endpoint=URL(string:"http://127.0.0.1:\(port)")!
         provider.local.models = ["milk-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel="milk-fixture"
-        let backend=PiBackend(runtime:runtime, providerConfiguration:provider); defer { backend.shutdown() }
+        let backend=PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime:runtime, providerConfiguration:provider); defer { backend.shutdown() }
         var catalog:[AgentCommand]=[], notices:[String]=[], failures:[String]=[], messages:[AgentMessage]=[], settled=0
         backend.onEvent={ event in
             switch event {

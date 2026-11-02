@@ -5,6 +5,7 @@ import Combine
 // remain in their existing stores. Secrets never enter this model.
 enum MilkAppearance: String, CaseIterable { case system = "System", light = "Light", dark = "Dark" }
 @MainActor final class SettingsService: ObservableObject {
+    let sandbox: SandboxSettingsStore
     private let defaults: UserDefaults
     private let persist: Bool
     @Published var appearance: MilkAppearance { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
@@ -15,6 +16,7 @@ enum MilkAppearance: String, CaseIterable { case system = "System", light = "Lig
     @Published var refreshExtensionsOnOpen: Bool { didSet { save("refreshExtensionsOnOpen", refreshExtensionsOnOpen) } }
     init(defaults: UserDefaults = .standard, persist: Bool = true) {
         self.defaults=defaults; self.persist=persist
+        sandbox = SandboxSettingsStore(defaults: defaults, persist: persist)
         appearance=MilkAppearance(rawValue: defaults.string(forKey:"Milk.settings.appearance") ?? "") ?? .system
         restoreWorkspace=defaults.object(forKey:"Milk.settings.restoreWorkspace") as? Bool ?? true
         previewDevice=PreviewDevice(rawValue:defaults.string(forKey:"Milk.settings.previewDevice") ?? "") ?? .desktop

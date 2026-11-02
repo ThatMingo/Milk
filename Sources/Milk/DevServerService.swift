@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Combine
 
 /// Only these directories are eligible for cleanup. No project paths are accepted by cleanup.
 final class PreviewTemporaryFiles {
@@ -57,6 +58,8 @@ final class PreviewTemporaryFiles {
     var detectedPort: Int? { detectedURL?.port }
     var exitStatus: Int32?
     var groupGone = false
+    var agentJob: AgentManagedJob?
+    var agentObservations: Set<AnyCancellable> = []
     var stopInProgress = false
     var stopCallbacks: [(Bool) -> Void] = []
     init(pid: pid_t, workspace: URL, configuration: PreviewConfiguration, command: String, temporaryDirectory: URL) {
@@ -79,7 +82,27 @@ final class PreviewTemporaryFiles {
         do { temporary = try temporaryBase.map { try PreviewTemporaryFiles(base: $0) } ?? PreviewTemporaryFiles() }
         catch { temporaryError = error }
     }
+    /// Accepts only a live host receipt. This never adopts an arbitrary PID or endpoint.
+    func adopt(_ job: AgentManagedJob, configuration: PreviewConfiguration) -> ManagedPreviewServer {
+        let server=ManagedPreviewServer(pid:0,workspace:job.activation.workspace,configuration:configuration,command:job.request.command,temporaryDirectory:job.request.directory)
+        server.agentJob=job; servers[server.id]=server; lastServer=server
+        job.$output.sink { [weak self, weak server] output in
+            guard let self, let server else { return }; server.stdout=output; self.onOutput?(server)
+        }.store(in:&server.agentObservations)
+        job.$state.sink { [weak self, weak server] state in
+            guard let self, let server else { return }
+            if state == .stopped || state == .failed {
+                // Means owned cleanup completed; never a claim that deliberate detached survivors died.
+                server.groupGone=true; server.state=state == .failed ? .failed : .stopped
+                self.servers[server.id]=nil
+                if !server.stopInProgress { self.onExit?(server) }
+            }
+        }.store(in:&server.agentObservations)
+        return server
+    }
     func launch(_ configuration: PreviewConfiguration, workspace: URL) throws -> ManagedPreviewServer {
+        guard configuration.agentSuggested != true else { throw AgentError.message("Agent Preview commands require a live sandbox-managed job receipt.") }
+
         guard WorkspaceFileService.isInside(configuration.directory, root: workspace, resolve: true),
               (try? configuration.directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { throw AgentError.message("Preview working directory must remain inside this workspace.") }
         guard let temporary else { throw temporaryError ?? AgentError.message("Preview temporary storage is unavailable.") }
@@ -153,6 +176,12 @@ final class PreviewTemporaryFiles {
         await withCheckedContinuation { continuation in stop(server) { continuation.resume(returning: $0) } }
     }
     private func stop(_ server: ManagedPreviewServer, completion: @escaping (Bool) -> Void) {
+        if let job=server.agentJob {
+            server.stopInProgress=true
+            Task { await job.stop(); server.groupGone=true; server.state = .stopped; self.servers[server.id]=nil; server.stopInProgress=false; completion(true) }
+            return
+        }
+
         if server.groupGone { completion(true); return }
         server.stopCallbacks.append(completion)
         guard !server.stopInProgress else { return }
