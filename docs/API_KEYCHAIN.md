@@ -105,7 +105,7 @@ are technically complete under the approved private-distribution policy. Exact e
 
 Pi, Pi extensions, pi.exec, Pi-owned children and stdio MCP keep the approved inference-
 key trust domain. Milk-owned sibling executors, jobs, probes, candidate/package helpers
-and API 2 workers construct independent sanitized environments. Worker signing/service
+and extension workers construct independent sanitized environments. Worker signing/service
 isolation remains intact. No filesystem permission, provider schema or auth-file copy
 changed with the backend. See [runtime environments](../RUNTIME.md#purpose-specific-environments)
 and [Sandbox policy](SANDBOX_POLICY.md).

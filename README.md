@@ -24,7 +24,7 @@ The canonical application version is in [VERSION](VERSION), targeting **Apple Si
   current supported agent runtimes, tools, probes, package/candidate execution and
   managed jobs. Explicit OFF remains available; final release acceptance is separate.
 - **Native Milk extensions:** trusted `.milkext` packages can add UI, commands
-  and services through MilkExtensionKit API 2. Agent-callable tools run in separate
+  and services through MilkExtensionKit. Agent-callable tools run in separate
   Milk sandbox workers; native UI remains trusted.
 
 Files, Git, Terminal, normal Preview and retained session browsing remain usable
@@ -114,7 +114,7 @@ adapter contract, migration, secure storage, and Pi limitations.
 
 Native Milk extensions use MilkExtensionKit for host UI and services. Pi extensions
 are separate resources loaded by Pi. Native UI executes inside Milk with user privileges and requires explicit trust;
-agent-callable API 2 tools execute in separate sandbox workers. Native UI capabilities
+agent-callable extension tools execute in separate sandbox workers. Native UI capabilities
 alone are not an OS sandbox.
 See the [extension developer guide](docs/EXTENSION_DEVELOPMENT.md) and the
 [example source](Examples/Extensions/OMLXStatusExample/).

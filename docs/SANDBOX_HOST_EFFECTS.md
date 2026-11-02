@@ -48,7 +48,7 @@ atomic transaction against independent trusted user edits during launch.
 
 ## Native worker and bridge
 
-API 2 removes agent handler closures and `piCommand`. Native user `command`, view,
+The extension worker contract removes agent handler closures and `piCommand`. Native user `command`, view,
 layout, settings and service contracts remain. Each invocation revalidates package
 fingerprint/active registry/workspace, authorizes declared files using current policy,
 and starts the separately signed `MilkExtensionWorker` before any worker bundle code

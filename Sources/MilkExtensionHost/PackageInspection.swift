@@ -57,7 +57,7 @@ public struct NativePackageInspector {
         guard manifest.id.count <= 200, manifest.id.range(of:#"^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$"#,options:.regularExpression) != nil else { throw NativeExtensionError.invalid("Extension ID must be a lowercase reverse-DNS identifier.") }
         guard !manifest.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, manifest.name.count <= 120 else { throw NativeExtensionError.invalid("A display name is required (maximum 120 characters).") }
         _ = try ExtensionVersion(manifest.version)
-        guard manifest.milkApi == MilkExtensionAPI.version else { throw NativeExtensionError.invalid("Unsupported Milk Extension API \(manifest.milkApi). This Milk supports API \(MilkExtensionAPI.version).") }
+        guard manifest.milkApi == MilkExtensionAPI.version else { throw NativeExtensionError.invalid("Unsupported extension package compatibility marker \(manifest.milkApi). Expected \(MilkExtensionAPI.version).") }
         guard try ExtensionVersion(manifest.minimumMilkVersion) <= ExtensionVersion(milkVersion) else { throw NativeExtensionError.invalid("Requires Milk \(manifest.minimumMilkVersion) or later.") }
         guard Set(manifest.capabilities).count == manifest.capabilities.count else { throw NativeExtensionError.invalid("Duplicate capability declarations.") }
         if let worker=manifest.agentWorkerClass, worker.range(of:#"^[A-Za-z_][A-Za-z0-9_.]*$"#,options:.regularExpression) == nil { throw NativeExtensionError.invalid("Invalid agent worker class.") }

@@ -63,7 +63,7 @@ trust exception. It never elevates surrounding shell text. Normal profiles prote
 `.git`, resolved/common/worktree metadata and inventoried control paths; Project Read
 Only blocks mutations. Trusted user `GitService` remains unchanged.
 
-Native tools use metadata-only API 2 registrations and `MilkExtensionWorker`, a
+Native tools use metadata-only extension worker registrations and `MilkExtensionWorker`, a
 separate Milk-owned signed helper without Milk's Keychain entitlements. It loads
 agent code only after profile/environment entry, and offers only typed, policy-gated
 Git IPC, not native host services. UI/slash/service handlers remain trusted in-process

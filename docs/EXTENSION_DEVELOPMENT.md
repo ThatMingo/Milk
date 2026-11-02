@@ -1,9 +1,9 @@
-# Milk Extension development — API 2
+# Milk Extension development
 
-This guide describes MilkExtensionKit API 2 in Milk 0.7.0. The authoritative public sources are [`MilkExtensionKit`](../Packages/MilkExtensionKit/Sources/MilkExtensionKit/). The separately built [`OMLXStatusExample`](../Examples/Extensions/OMLXStatusExample/) is a complete working extension.
+This guide describes MilkExtensionKit in Milk 0.7.0. The authoritative public sources are [`MilkExtensionKit`](../Packages/MilkExtensionKit/Sources/MilkExtensionKit/). The separately built [`OMLXStatusExample`](../Examples/Extensions/OMLXStatusExample/) is a complete working extension.
 
 The historical extension implementation’s “Phase 7” is separate from the completed
-Agent Refactor acceptance. API 2 is the current extension contract.
+Agent Refactor acceptance. Agent-callable tools execute in extension worker processes.
 
 > **Milk extensions NEVER patch or modify Milk source code.** Do not edit `MainWindow.swift`, sidebar, Settings, toolbar source, core enums, upstream Pi source, or any other Milk application source to implement or install an extension. All integration uses MilkExtensionKit contribution APIs. If an extension point is missing, stop and extend MilkExtensionKit/core intentionally first; do not patch around it from the extension.
 
@@ -47,8 +47,8 @@ Milk.app
 | Skill | Pi-discovered task instructions/resources, invoked using Pi's supported skill mechanism |
 
 Choose native Milk for host UI. A native `command` is explicit local user dispatch.
-Agent-callable tools use API 2 metadata plus a separate worker class; `piCommand`
-and in-process agent closures have been removed. Existing API 1 packages must be
+Agent-callable tools use extension tool metadata plus a separate worker class; `piCommand`
+and in-process agent closures have been removed. Packages affected by the worker execution contract must be
 rebuilt; there is no legacy agent-execution fallback, including with Sandbox OFF.
 Native view/layout/settings contracts remain unchanged.
 
@@ -90,9 +90,13 @@ MyExtension.milkext/
         └── ... optional resources
 ```
 
-The manifest is under `Contents/Resources` so ordinary macOS bundle signing can seal it. A top-level manifest is not the API 2 format.
+`milkApi` is an existing package compatibility marker, not a product/API generation
+name. Its current value and host equality check are unchanged. Package compatibility
+is enforced independently of app version and Swift ABI.
 
-The current host accepts arm64 Mach-O **MH_BUNDLE** executables for macOS 26+. It rejects missing/non-executable entries, script executables, symlinks, hard-linked files, special files, over 10,000 entries, or packages over 128 MB. Manifests and Info.plist are limited to 64 KB each. Fat/universal and Intel packages are not supported in API 2's current host.
+The manifest is under `Contents/Resources` so ordinary macOS bundle signing can seal it. A top-level manifest is not the extension package format.
+
+The current host accepts arm64 Mach-O **MH_BUNDLE** executables for macOS 26+. It rejects missing/non-executable entries, script executables, symlinks, hard-linked files, special files, over 10,000 entries, or packages over 128 MB. Manifests and Info.plist are limited to 64 KB each. Fat/universal and Intel packages are not supported in the current extension host.
 
 ### Manifest
 
@@ -157,7 +161,7 @@ xcrun swiftc -swift-version 5 -target arm64-apple-macosx26.0 \
 codesign --force --sign - MyExtension.milkext
 ```
 
-Create the manifest, Info.plist and Resources first. Do not embed MilkExtensionKit in the extension. The binary references `@rpath/libMilkExtensionKit.dylib`, which Milk resolves to its shared library. The packaged SDK includes textual Swift interfaces built with library evolution enabled. API version checks are required in addition to Swift ABI compatibility; compatibility with every future compiler has not been established.
+Create the manifest, Info.plist and Resources first. Do not embed MilkExtensionKit in the extension. The binary references `@rpath/libMilkExtensionKit.dylib`, which Milk resolves to its shared library. The packaged SDK includes textual Swift interfaces built with library evolution enabled. Package compatibility checks are required in addition to Swift ABI compatibility; compatibility with every future compiler has not been established.
 
 For the example, `MILK_EXTENSION_SDK` can point at the shipped SDK. `MILK_EXAMPLE_VERSION=1.1.0` builds update fixtures without modifying source. The example's script accepts an optional output bundle path.
 
@@ -256,7 +260,7 @@ Keep status views concise. Milk allows two status registrations per extension an
 
 ## Capabilities and services
 
-A service property is `nil` unless its corresponding capability was granted. Each operation also checks the specific permission and active lease. API 2 requests the full declared set on installation; there is no partial-grant UI. Newly requested permissions must be accepted during update.
+A service property is `nil` unless its corresponding capability was granted. Each operation also checks the specific permission and active lease. Milk requests the full declared set on installation; there is no partial-grant UI. Newly requested permissions must be accepted during update.
 
 | Capability | Supported interface |
 | --- | --- |
@@ -290,7 +294,7 @@ try context.contributions.service(.init(id: "poll", workspaceScoped: false) { _ 
 
 Services receive cancellation on disable, uninstall and quit. Workspace-scoped services receive their workspace URL, cancel on departure, and start for the next workspace. Cooperate with cancellation, including inside loops. Retained host services check task cancellation and revocation. Milk cannot preempt arbitrary custom native tasks that ignore cancellation.
 
-Use the process service for subprocesses. Milk records extension owner, PID/group and workspace scope, starts a fresh group with closed inherited descriptors and a minimal environment, and stops only those owned groups. A reaper keeps the leader unreaped while bounded TERM/KILL cleanup runs, preventing PID/group reuse. It does not kill by port, process name or cwd. Workspace changes stop workspace-scoped processes; disable/uninstall/quit stop all managed processes for the owner. Daemonizing or deliberately escaping the owned process group is unsupported. Generic launch discards stdout/stderr in API 2; it is not an interactive terminal or streaming-output API.
+Use the process service for subprocesses. Milk records extension owner, PID/group and workspace scope, starts a fresh group with closed inherited descriptors and a minimal environment, and stops only those owned groups. A reaper keeps the leader unreaped while bounded TERM/KILL cleanup runs, preventing PID/group reuse. It does not kill by port, process name or cwd. Workspace changes stop workspace-scoped processes; disable/uninstall/quit stop all managed processes for the owner. Daemonizing or deliberately escaping the owned process group is unsupported. Generic launch discards stdout/stderr in the current process service; it is not an interactive terminal or streaming-output API.
 
 File writes, shell launches and Git writes pass through Milk's permission policy and composer approval model. Approval uses the originating Pi session where applicable. In the app, those operations require an available workspace/session for the approval flow; a missing policy fails closed. Autonomous session policy permits supported actions without a prompt. Installation trust alone does not bypass action approvals.
 
@@ -428,7 +432,7 @@ The full identity is `extension:<your-extension-ID>/panel:notes`. The topbar tog
 
 ### Existing-screen injection recipe
 
-The slot table above is exhaustive for API 2, including `file.contextMenu`. To add a button beside the composer controls:
+The slot table above is exhaustive for the current SDK, including `file.contextMenu`. To add a button beside the composer controls:
 
 ```swift
 try context.contributions.action(at: .composerTrailing, .init(
@@ -461,13 +465,13 @@ ExtensionSettingsSection("Connection") {
 
 This fragment belongs in a view with `@State` strings `endpoint`, `token`, `errorText` and a retained `context`. Declare `keychain` for token storage. Load the endpoint and token in model initialization, and surface missing services/errors instead of pretending a save succeeded. The complete oMLX `StatusSettings`/`StatusModel` implementation supplies a working version with validation and persistence.
 
-Storage is extension-global; API 2 has no separate workspace settings API. If needed, implement a versioned per-workspace map in scoped storage using the workspace URL from the action context or the gated workspace service. Handle no open workspace and avoid assuming a URL is a permanent project identity. Do not use Milk's private preferences.
+Storage is extension-global; MilkExtensionKit has no separate workspace settings API. If needed, implement a versioned per-workspace map in scoped storage using the workspace URL from the action context or the gated workspace service. Handle no open workspace and avoid assuming a URL is a permanent project identity. Do not use Milk's private preferences.
 
 ### Slash-command recipe
 
 ```swift
 try context.contributions.command(.init(name: "foo", summary: "Open service status") { arguments in
-    // Validate arguments here; API 2 has no argument-schema/arity field.
+    // Validate arguments here; MilkExtensionKit has no argument-schema/arity field.
     guard arguments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     try context.focusSidebar("status")
 })
@@ -487,7 +491,7 @@ try context.contributions.piTool(.init(
     parameters: Data(#"{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}"#.utf8)))
 ```
 
-Add `"agentWorkerClass": "MyExtension.AgentWorker"` to the API 2 manifest:
+Add `"agentWorkerClass": "MyExtension.AgentWorker"` to the extension manifest:
 
 ```swift
 public final class AgentWorker: MilkExtensionAgentWorker {
@@ -568,7 +572,7 @@ Use an explicitly configured executable or your own contained resource executabl
 
 ## State evolution and migration
 
-API 2 has no migration callback. In activation/model initialization, read a versioned Codable envelope from scoped storage, validate it and explicitly migrate supported older versions. Write atomically through `storage.write`, retain a backup where appropriate, and leave unknown newer formats intact with a useful diagnostic. Package update rollback restores code references, not arbitrary mutated extension data. Prefer additive/backward-readable changes so the previous package can still operate. Never put mutable settings or migration state inside `.milkext`: code/resources may be replaced; ExtensionData remains.
+MilkExtensionKit has no migration callback. In activation/model initialization, read a versioned Codable envelope from scoped storage, validate it and explicitly migrate supported older versions. Write atomically through `storage.write`, retain a backup where appropriate, and leave unknown newer formats intact with a useful diagnostic. Package update rollback restores code references, not arbitrary mutated extension data. Prefer additive/backward-readable changes so the previous package can still operate. Never put mutable settings or migration state inside `.milkext`: code/resources may be replaced; ExtensionData remains.
 
 Normal uninstall keeps ExtensionData (including settings) and Keychain secrets. Remove Data always attempts deletion of the complete `dev.milk.extension.<extensionID>` Keychain service before deleting the data directory, independent of marker presence. The deletion query explicitly matches all accounts in that service, not just one secret. An empty namespace succeeds idempotently; a real Keychain error is reported instead of claiming complete deletion. The marker may still be written for bookkeeping but is not authorization or evidence required for deletion.
 
@@ -582,7 +586,7 @@ Normal uninstall keeps ExtensionData (including settings) and Keychain secrets. 
 | `selected`, `hover` | Semantic selection and hover surfaces |
 | `separator` | Native separator/border color |
 
-API 2 does not expose separate `background`, `success`, `warning` or `destructive` theme properties. Do not invent them or reach into private MilkTheme. Use supported SwiftUI semantic roles/native colors when extra status semantics are necessary, and check both appearances. Do not use `.accentColor` as a substitute for Milk accent, hardcode light-only backgrounds, set application appearance or invent independent application styling unless custom content deliberately requires it. Use `ExtensionButtonStyle`, `ExtensionSettingsRow`, `ExtensionSettingsSection`, `ExtensionStatusBadge` and `ExtensionEmptyState` where appropriate.
+MilkExtensionKit does not expose separate `background`, `success`, `warning` or `destructive` theme properties. Do not invent them or reach into private MilkTheme. Use supported SwiftUI semantic roles/native colors when extra status semantics are necessary, and check both appearances. Do not use `.accentColor` as a substitute for Milk accent, hardcode light-only backgrounds, set application appearance or invent independent application styling unless custom content deliberately requires it. Use `ExtensionButtonStyle`, `ExtensionSettingsRow`, `ExtensionSettingsSection`, `ExtensionStatusBadge` and `ExtensionEmptyState` where appropriate.
 
 # Where to Make Each Kind of Change
 
@@ -639,14 +643,14 @@ These are inspection/reference locations; an extension author changes their own 
 
 ## Current limitations
 
-Trusted native UI is not sandboxed; its crashes cannot be isolated. Agent workers use a separate process and OS profile. The current loader accepts arm64/macOS 26+ bundles. Already mapped native code requires restart for replacement. There is no marketplace, automatic update feed or enforced publisher authority. Signature reporting and integrity checks do not establish publisher trust. API 2 may evolve; unsupported contribution points require an intentional SDK/core change. Native code has cooperative cancellation limits and cannot be safely hot-unloaded. The oMLX example demonstrates broad integration with external infrastructure; it does not make oMLX part of Milk core.
+Trusted native UI is not sandboxed; its crashes cannot be isolated. Agent workers use a separate process and OS profile. The current loader accepts arm64/macOS 26+ bundles. Already mapped native code requires restart for replacement. There is no marketplace, automatic update feed or enforced publisher authority. Signature reporting and integrity checks do not establish publisher trust. MilkExtensionKit may evolve; unsupported contribution points require an intentional SDK/core change. Native code has cooperative cancellation limits and cannot be safely hot-unloaded. The oMLX example demonstrates broad integration with external infrastructure; it does not make oMLX part of Milk core.
 
 
 Pi local package registration/removal now runs the actual selected runtime through a
 separate package purpose: private HOME/cache/TMP, no provider key, read-only external
 source and only the selected target profile writable under current policy. Ambiguous
 source/target hard-link or symlink overlap fails closed. No source folder is implicitly
-granted write access. Native worker load/cancel/signing boundaries and API 2 remain
+granted write access. Native worker load/cancel/signing boundaries and the extension worker contract remain
 unchanged. Security-policy edits stop old jobs/workers; explicit restart receives fresh
 authority. Sandbox OFF is clearly unenforced and never a missing-capability fallback.
 

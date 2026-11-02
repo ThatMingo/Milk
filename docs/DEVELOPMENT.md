@@ -155,7 +155,7 @@ Phase 5 adds the Milk-owned `MilkExtensionWorker` SwiftPM product under
 `Contents/Helpers`. It is signed with `scripts/milk-worker.entitlements` (library
 validation exception only), a distinct identifier, and no Milk Keychain identity or
 provisioning profile. The app and SDK signing flow is otherwise unchanged. It is
-not a bundled coding agent. Rebuild API 1 native packages for API 2; view/layout/
+not a bundled coding agent. Rebuild native packages affected by the worker execution contract; view/layout/
 settings registrations remain, while agent handlers must move to the worker entry.
 See [extension development](EXTENSION_DEVELOPMENT.md) and
 [host-effect boundaries](SANDBOX_HOST_EFFECTS.md).

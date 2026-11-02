@@ -36,7 +36,7 @@ the stated finite current-host checks passed; external and untested claims remai
 | Profile/credential domains | SandboxEnvironmentTests, SandboxPiIntegrationTests, SandboxProviderParityTests and provider/profile suites; Pi child/extension/pi.exec/stdio MCP versus separate key-free Milk executors/jobs/workers | PASS (final 304-test suite and applicable native/artifact checks); synthetic credentials only |
 | Tools and purposes | SandboxExecutionTests, SandboxPurposeTests, Phase 1; stock read/write/edit/search, nested tools/user_bash, shell/Python/Node/npm/Swift/Xcode, probes/packages/candidates | PASS; real Xcode build uses explicit TemporaryItems Once grant; unsupported forms reject ON |
 | Git | SandboxHostEffectsTests and GitTests; actual local workflows/remotes/hooks/editor/diff helper, worktrees/metadata/config identity, mutation/deletion denial, shell/override rejection | PASS (final 304-test suite and applicable native/artifact checks); configured hooks/helpers/editors are elevated |
-| Extension API 2 | NativeExtensionTests, NativeExtensionIntegrationTests, actual packaged-worker fixture; install/lifecycle/update/restart/data/integrity/nonce/files/Git/cancel/revoke/native UI | PASS (final 304-test suite and applicable native/artifact checks); no API 1 agent fallback |
+| Extension workers | NativeExtensionTests, NativeExtensionIntegrationTests, actual packaged-worker fixture; install/lifecycle/update/restart/data/integrity/nonce/files/Git/cancel/revoke/native UI | PASS (final 304-test suite and applicable native/artifact checks); no in-process agent fallback |
 | Preview/jobs | PreviewTests, SandboxHostEffectsTests, lifecycle tests; trusted user origin versus managed agent origin, readiness/server/static behavior, ownership/restart/stop/stale receipts | PASS (final 304-test suite and applicable native/artifact checks) |
 | Packaging | Normal and release scripts, Python recipe/package/signing/version tests, archive integrity, strict signatures and packaged worker | PASS (final 304-test suite and applicable native/artifact checks); local/ad-hoc scope |
 | Live providers | No usable dedicated non-admin live inference credential established in this campaign | NOT RUN / optional coverage; synthetic localhost tests are not live oMLX or hosted-account acceptance |
@@ -128,7 +128,7 @@ Final evidence after production corrections:
 
 | Command / check | Actual result | Local evidence |
 | --- | --- | --- |
-| Full Xcode SwiftPM `swift test --cache-path "$PWD/.build/cache" --disable-sandbox`, with `MILK_TEST_WORKER_PATH` selecting the staged release helper | **304/304 passed**, zero failures/skips, 237.593 seconds; includes actual Xcode build/Once dependency and packaged API 2 worker | `/private/tmp/milk-phase7-full-final.log` |
+| Full Xcode SwiftPM `swift test --cache-path "$PWD/.build/cache" --disable-sandbox`, with `MILK_TEST_WORKER_PATH` selecting the staged release helper | **304/304 passed**, zero failures/skips, 237.593 seconds; includes actual Xcode build/Once dependency and packaged extension worker | `/private/tmp/milk-phase7-full-final.log` |
 | Python discovery: SandboxPhase1 | **22/22 passed**, 25.020 seconds | `/private/tmp/milk-phase7-python-final.log` |
 | Python discovery: Fixtures / KeychainSigning / ReleasePackaging / Versioning | **1 + 2 + 5 + 2 passed**; total Python **32/32** | same log |
 | `./scripts/build-release.sh --disable-sandbox` | **PASS**, real optimized build, private-path rejection gate, ZIP extraction/CRC/checksum/metadata verification | `/private/tmp/milk-phase7-release-final.log` |
@@ -238,7 +238,7 @@ passed. This is user-confirmed native Keychain authorization, not automated Secu
 interaction or a claim of silent access across arbitrary future updates. The automation
 tool blocks SecurityAgent; no password was inspected, supplied or logged.
 
-The new actual-worker test verifies that a compiled API 2 worker cannot read the same
+The new actual-worker test verifies that a compiled extension worker cannot read the same
 real disposable Milk Keychain item, with ON service isolation or OFF default-ACL
 isolation, while the creating app retains access. The item is deleted afterward.
 Normal source-only tests opt out of real-store interaction unless the built-app and

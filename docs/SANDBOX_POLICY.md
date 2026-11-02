@@ -131,7 +131,7 @@ Results, images, errors and updates travel back over the same private transport.
 Commands may explicitly declare `sandboxFolders`; Milk does not parse/rewrite shell
 strings or automatically rerun a denied command. Undeclared outside access receives
 the kernel decision. Unknown model/custom/MCP tools reject while ON. Native agent
-effects use the separate API 2 worker route; legacy native bridge effects reject. Direct `pi.exec` and Pi extension children
+effects use the separate extension worker route; legacy native bridge effects reject. Direct `pi.exec` and Pi extension children
 remain in the fixed baseline sandbox; they receive no temporary sibling grant.
 
 `SandboxApprovalCenter` presents requests through the existing composer child panel.
@@ -160,7 +160,7 @@ integration; Local inspection is covered. Trusted user-started Preview is
 unchanged.
 
 Git metadata writes are denied in ordinary profiles. Controlled real-Git escalation,
-API 2 native agent workers and explicit managed jobs are described in
+Native extension workers and explicit managed jobs are described in
 [host-effect boundaries](SANDBOX_HOST_EFFECTS.md). The complete executable inventory
 is in [purpose contracts](SANDBOX_PURPOSES.md); final acceptance remains in the
 [completed implementation record](exec-plans/completed/SANDBOX_IMPLEMENTATION.md).

@@ -317,7 +317,7 @@ final class NativeExtensionTests: XCTestCase {
         let manager=NativeExtensionManager(root:base.appendingPathComponent("support"),loader:ProbeLoader()), workspace=base.appendingPathComponent("workspace")
         await manager.setWorkspace(workspace); try await install(manager,url:fixture(base,manifest:manifest()))
         let tool=try XCTUnwrap(manager.registry.tools.first)
-        // API 2 rejects a UI-only package for agent execution, even with ordinary approval.
+        // The extension worker contract rejects a UI-only package for agent execution, even with ordinary approval.
         manager.authorize={ _,_,_,_ in XCTFail("Preparing a worker must never invoke native action approval/handlers") }
         do { _ = try await manager.prepareAgentTool(id:tool.id,arguments:Data("{}".utf8),workspace:workspace); XCTFail("UI-only package gained an agent fallback") } catch {}
         XCTAssertEqual(try manager.piPrompt(manager.registry.prompts.keys.first!,workspace:workspace),"Native prompt")

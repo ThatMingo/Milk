@@ -25,7 +25,7 @@ Start with the README for an overview and Developer setup to build from source.
   Pi setup, retention and focused verification.
 - [Agent provider settings](AGENT_PROVIDER_SETTINGS.md): current ownership, Pi Local
   setup, adapter settings contract, capability sources and safe migration.
-- [Extension development](EXTENSION_DEVELOPMENT.md): MilkExtensionKit API 2,
+- [Extension development](EXTENSION_DEVELOPMENT.md): MilkExtensionKit,
   native packages, trust, services and the independent example.
 - [Agent final acceptance](AGENT_PHASE_FINAL_ACCEPTANCE.md): completed technical
   baseline, 156/156 tests, exact evidence scope and remaining app-release gates.
@@ -38,7 +38,7 @@ Start with the README for an overview and Developer setup to build from source.
   [dependency inventory](../ThirdPartyNotices/INVENTORY.md): licenses, pins and
   source/download/app-resource boundaries.
 
-- [Sandbox host effects](SANDBOX_HOST_EFFECTS.md): real-Git escalation, API 2 agent
+- [Sandbox host effects](SANDBOX_HOST_EFFECTS.md): real-Git escalation, extension
   workers, Preview origin receipts and explicit managed jobs.
 
 - [Executable purpose contracts](SANDBOX_PURPOSES.md): complete launch inventory,
@@ -72,7 +72,7 @@ phase; they do not override current references or final acceptance.
 
 The older native-extension implementation also used “Phase 7.” That chronology
 is distinct from the Agent Refactor's final acceptance and from GitHub Publication
-Phases 1–2. Current extension behavior is documented as **MilkExtensionKit API 2**.
+Phases 1–2. Current extension behavior is documented as **MilkExtensionKit**.
 
 Evidence paths under `output/` in historical/acceptance reports refer to generated
 local files excluded from the public source tree, not downloadable GitHub assets.

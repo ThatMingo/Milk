@@ -1586,10 +1586,10 @@ and never persisted as trusted commands. Existing user host UI/services stay tru
   loader/shell/Git injection dictionary. Control/config changes require reconnect;
   Git's own changes refresh snapshots, and new control roots invalidate the fixed
   activation. Bare/ambiguous repositories are unsupported, never silently elevated.
-- API 2 `ExtensionAPI.swift`: metadata-only agent tools, `agentWorkerClass`, separate
+- Extension worker contract in `ExtensionAPI.swift`: metadata-only agent tools, `agentWorkerClass`, separate
   `MilkExtensionAgentWorker`, URL-value/typed-Git context and file declarations.
   Removed `piCommand` and agent handler closures. UI/layout/settings/user command/
-  native-service APIs remain trusted and otherwise unchanged. API 1 packages require
+  native-service APIs remain trusted and otherwise unchanged. Packages with in-process agent handlers require
   rebuild; there is no unsafe legacy fallback even OFF.
 - `MilkExtensionWorker/Worker.swift`, `SandboxExtensionExecution.swift`: separate
   executable/signing identity, profile/env before bundle loading, bounded private
@@ -1695,7 +1695,7 @@ all descendants. Real Git configured hooks/helpers remain elevated code by desig
 Git recognition/inventory is intentionally bounded, bare/ambiguous forms fail closed,
 and conservative bulk root checks can over-request/deny access. This does not claim
 atomic protection against independent trusted filesystem/config edits during launch.
-API 2 breaks old agent-extension source/ABI and requires rebuild. Worker stdout is
+The worker execution contract changed agent-extension source/ABI and requires rebuilding affected extensions. Worker stdout is
 protocol-only; arbitrary unsolicited stdout fails the invocation. Pi profile-only
 custom configured provider/auth Preview inspection still has Phase 4's recorded
 private-profile seam; no credential copy or policy weakening was introduced.
@@ -1786,7 +1786,7 @@ Main Phase 5 files:
 
 Remaining limits are the approved/bounded ones recorded above: deliberate detached
 survivors, configured real-Git helper trust, bounded recognition/inventory and snapshot
-race limits, API 2 rebuild migration, and the pre-existing Existing-only configured
+race limits, extension worker rebuild requirements, and the pre-existing Existing-only configured
 provider Preview-inspection seam. Phase 6 must address its own broader purpose,
 install/compatibility inventory and rollout gates before release claims. No L1/L2,
 approved product/security decision, or user host privilege boundary was weakened.
@@ -1796,7 +1796,7 @@ approved product/security decision, or user host privilege boundary was weakened
 
 Authorized purpose closure and default-ON readiness only. Preserve existing Phase 1–5
 work on security/api-keychain / be99984; no history/branch mutation. L1/L2, Git helper
-exception, API 2, user host features and the Existing-only Preview provider seam stay
+exception, extension workers, user host features and the Existing-only Preview provider seam stay
 settled. No Phase 7 release/live-provider/adversarial-certification campaign.
 
 Re-audit findings at entry: conversation, Preview inspection, stock workers, native
@@ -1841,7 +1841,7 @@ developer diagnostics rather than treating them as agent fallbacks.
 | Package install/remove: `ExtensionService` / `PiUtilityProcess` | Actual selected runtime; explicit local source read-only, exact selected target profile writable subject to stronger policy; purpose ceilings exclude unrelated grants. | Separate key-free environment/private HOME/TMP/cache; only PI_CODING_AGENT_DIR selects the persistent target. Fresh owned transaction, awaited cleanup. |
 | Stock/nested tools and user_bash: `PiSandboxExecution` | Existing sibling executor/per-operation policy and grants; selected code/resources read-only. | Separate sanitized operation HOME/profile/TMP, no Local key; private bridge capabilities and owned process cleanup. |
 | Background/watch/agent Preview jobs: `SandboxHostEffects` | Explicit immutable job request, current project/grants and development-tool dependencies; no Pi dependency tree borrowed for generic jobs. | Separate key-free HOME/TMP and explicit activation/session/project/job owner; revocation/stop/drain rules preserved. No silent adoption of arbitrary descendants. |
-| Native API 2 agent tools: `SandboxExtensionExecution` / `MilkExtensionWorker` | Validated helper/library closure and verified package; capability-scoped file authority; minimal non-shell roots, development dependencies only for shell tools; code read-only. | Separate signed helper identity without Milk Keychain entitlement; private key-free HOME/TMP and bounded typed IPC. Trusted native UI stays in-process. |
+| Native extension worker tools: `SandboxExtensionExecution` / `MilkExtensionWorker` | Validated helper/library closure and verified package; capability-scoped file authority; minimal non-shell roots, development dependencies only for shell tools; code read-only. | Separate signed helper identity without Milk Keychain entitlement; private key-free HOME/TMP and bounded typed IPC. Trusted native UI stays in-process. |
 | Controlled Git: `SandboxHostEffects.git` | Sandboxed preflight then exact recognized real Git escalation; configured hooks/helpers/editors remain the explicit exception. | Sanitized Git environment and explicit Git user HOME/validated SSH socket; no Local key, no surrounding shell elevation. |
 
 `AgentInstallationStore`, downloads, libarchive extraction/inventory and installation
@@ -2009,7 +2009,7 @@ checking an item. Details/results are maintained in `docs/SANDBOX_ACCEPTANCE.md`
 | Tools/purposes | SandboxExecutionTests, SandboxPiIntegrationTests, SandboxPurposeTests, Phase 1 Python | Real stock tools/children/MCP, developer tools, malformed closure/no fallback, private state, installation/package containment. |
 | Approval UX | SandboxPopupTests plus focused Phase 7 concurrent-session/queue/invalidation/window-close fixture | Real anchored AppKit/SwiftUI rendering and programmatic responses, not manual human clicks. |
 | Git | SandboxHostEffectsTests and GitTests plus focused remaining Git metadata/branch cases | Real local repos/remotes/hooks/editors/helpers and exact elevated operation; no real repository history mutation. |
-| Native API 2 | NativeExtensionTests, NativeExtensionIntegrationTests, packaged actual-worker test | Lifecycle/integrity/nonce/files/Protected/Git/cancel/revoke/native UI; synthetic Keychain deletion contract only. |
+| Native extension workers | NativeExtensionTests, NativeExtensionIntegrationTests, packaged actual-worker test | Lifecycle/integrity/nonce/files/Protected/Git/cancel/revoke/native UI; synthetic Keychain deletion contract only. |
 | Preview/jobs | PreviewTests, SandboxHostEffectsTests, lifecycle suites | Trusted user versus agent origins, static/dev server/readiness/rendering/stop/restart/owner receipts; explicit jobs only. |
 | Release | Existing normal/release scripts, Python packaging/signing/version/resources, strict signatures and actual packaged worker | Current host local/ad-hoc artifact acceptance; Developer ID/notarization requires external signing access. |
 
@@ -2071,7 +2071,7 @@ existing explicit user approval; default filesystem authority was not widened.
 
 Final fresh Swift: **304/304 passed**, zero failures/skips, 237.593 seconds,
 `/private/tmp/milk-phase7-full-final.log`. The entire run selected the actual stripped,
-ad-hoc hardened-runtime release MilkExtensionWorker; its real compiled API 2 fixture
+ad-hoc hardened-runtime release MilkExtensionWorker; its real compiled extension worker fixture
 passed. Python: **32/32** (Phase 1 22; resource 1; signing 2; release 5; versioning 2),
 `/private/tmp/milk-phase7-python-final.log`. Earlier 302/303-test runs and focused
 30-test correction run remain intermediate evidence, not the final count.
@@ -2180,7 +2180,7 @@ signature access using only disposable verifier identities/values; never print v
   Creator restored, retained value read, deletion and missing-item check all passed.
   No ACL edited in code; no password/secret logged; SecurityAgent automation was blocked
   and no attempt was made to bypass that restriction.
-- Actual packaged API 2 fixture attempted ordinary SecItem read of a real disposable
+- Actual packaged extension worker fixture attempted ordinary SecItem read of a real disposable
   item created by Milk. ON and OFF worker attempts both denied; the Milk creator
   still read it before verified cleanup. Environment/domain isolation remains tested
   separately. The opt-in test needs MILK_TEST_KEYCHAIN_APP and MILK_TEST_WORKER_PATH;

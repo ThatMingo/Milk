@@ -346,7 +346,7 @@ public struct NativeExtensionRecord: Codable, Identifiable, Equatable {
         guard let tool=registry.tools.first(where:{ $0.id == id }), let context=contexts[tool.owner], context.lease.active,
               workspaceURL == workspace, arguments.count <= 1_048_576 else { throw NativeExtensionError.invalid("Native agent contribution is inactive or belongs to another workspace.") }
         let saved=try record(tool.owner)
-        guard let worker=saved.manifest.agentWorkerClass else { throw NativeExtensionError.invalid("Agent tools require an API 2 worker entry point. No in-process fallback exists.") }
+        guard let worker=saved.manifest.agentWorkerClass else { throw NativeExtensionError.invalid("Agent tools require an extension worker entry point. No in-process fallback exists.") }
         let inspection=try await verify(saved)
         try context.lease.check(.pi)
         guard workspaceURL == workspace, registry.tools.contains(where:{ $0.id == id && $0.registration == tool.registration }) else { throw CancellationError() }
