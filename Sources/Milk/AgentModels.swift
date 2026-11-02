@@ -162,6 +162,7 @@ struct RuntimeStatus: Equatable {
 /// UI and workspace code consume only Milk domain models.
 @MainActor protocol AgentBackend: AgentOwnedResource {
     var onEvent: ((AgentEvent) -> Void)? { get set }
+    var permissionChangesRequireRestart: Bool { get }
     func start(workspace: URL, session: AgentSession) async throws
     func send(_ prompt: AgentPrompt, intent: AgentSubmissionIntent) async throws
     func stop() async throws
@@ -173,6 +174,7 @@ struct RuntimeStatus: Equatable {
     func rename(_ title: String) async throws
     func respond(_ approval: AgentApproval, response: AgentDialogResponse) throws
     func refreshCommands() async throws
+    func startManagedJob(_ request: AgentManagedJobRequest) async throws -> AgentManagedJob
     func shutdown()
     /// Return only after this backend can no longer write its session file.
     func shutdownAndWait() async throws
@@ -180,7 +182,9 @@ struct RuntimeStatus: Equatable {
 
 // Backends without dynamic command discovery report no extra catalog.
 extension AgentBackend {
+    var permissionChangesRequireRestart: Bool { false }
     func refreshCommands() async throws {}
+    func startManagedJob(_ request: AgentManagedJobRequest) async throws -> AgentManagedJob { throw AgentError.message("This agent does not support sandbox-managed jobs.") }
     func send(_ prompt: AgentPrompt) async throws { try await send(prompt, intent: .prompt) }
     // Existing presentation call sites remain unchanged while the backend contract is typed.
     func respond(_ approval: AgentApproval, value: String?, confirmed: Bool?, cancelled: Bool) throws {

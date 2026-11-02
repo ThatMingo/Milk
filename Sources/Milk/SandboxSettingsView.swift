@@ -15,7 +15,7 @@ struct SandboxSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.sectionSpacing) {
             settingGroup("Sandbox") {
-                SettingsNote(text: "Policy configuration only. Agent execution is not sandboxed by these settings yet.")
+                SettingsNote(text: "Sandbox ON applies purpose-specific protection to agent runtimes, probes, package commands, workers and managed jobs. Git hooks/helpers use the documented controlled exception. OFF is explicitly unenforced.")
                 SettingsRow(title: "Sandbox", subtitle: "Independent from Ask for approval and Autonomous.") {
                     Toggle("Sandbox", isOn: Binding(get: { store.configuration.enabled }, set: { value in change { try store.setEnabled(value) } })).labelsHidden()
                 }

@@ -37,7 +37,7 @@ struct SandboxTemporaryGrant: Identifiable {
         guard accepting, runtimes[activation.token] == activation else { throw CancellationError() }
         let scope = SandboxOperationScope(activation: activation); operations[scope.id] = scope; return scope
     }
-    private func isLive(_ operation: SandboxOperationScope) -> Bool {
+    func isLive(_ operation: SandboxOperationScope) -> Bool {
         accepting && runtimes[operation.activation.token] == operation.activation && operations[operation.id] == operation
     }
     @discardableResult func approve(_ decision: SandboxPolicyDecision, access: SandboxFolderAccess,

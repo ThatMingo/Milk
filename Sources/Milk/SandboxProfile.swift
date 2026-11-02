@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Filesystem policy compiler. Other macOS service/network closure is later purpose hardening.
 struct SandboxProfileBuilder {
@@ -57,7 +58,13 @@ struct SandboxProfileBuilder {
             }
             return branches.isEmpty ? "(literal \(try Self.quote("/Milk-no-permitted-path-" + UUID().uuidString)))" : "(require-any \(branches.joined(separator: " ")))"
         }
-        let read = try allowed(.read), write = try allowed(.write)
+        // Public root symlink objects are needed by xcode-select/developer shims.
+        // These literals permit reading the links, never their destination subtrees.
+        let links = try ["/var", "/etc", "/tmp"].map { "(literal \(try Self.quote($0)))" }.joined(separator: " ")
+        let read = "(require-any \(try allowed(.read)) \(links))"
+        let nullRule=SandboxPolicy().evaluate(URL(fileURLWithPath:"/dev/null"),action:.write,context:context).rule
+        let nullDevice = nullRule == .outsideProject ? "(literal \(try Self.quote("/dev/null")))" : ""
+        let write = "(require-any \(try allowed(.write)) \(nullDevice))"
         var ancestors: Set<String> = ["/"]
         for entry in ordered where entry.1.canonicalURL.path != "/" {
             var parent = entry.1.canonicalURL.deletingLastPathComponent().path
@@ -67,19 +74,15 @@ struct SandboxProfileBuilder {
         var sbpl = "(version 1)\n(allow default)\n(deny file-read-data file-read-xattr (require-not \(read)))\n(deny file-read-metadata (require-not (require-any \(read) \(metadata))))\n(deny file-write* (require-not \(write)))\n"
         // No general operation may mutate Git metadata, even inside a broad grant.
         sbpl += "(deny file-write* (regex #\"(^|/)\\.git(/|$)\"))\n"
-        let git = context.roots.project.appendingPathComponent(".git")
-        if let data = try? Data(contentsOf: git), data.count < 8192, let line = String(data: data, encoding: .utf8), line.hasPrefix("gitdir:") {
-            let raw = line.dropFirst(7).trimmingCharacters(in: .whitespacesAndNewlines)
-            let url = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : context.roots.project.appendingPathComponent(raw)
-            let resolved = try resolver.resolve(url)
-            sbpl += "(deny file-write* (subpath \(try Self.quote(resolved.canonicalURL.path))))\n"
-            let common = resolved.canonicalURL.appendingPathComponent("commondir")
-            if let value = try? String(contentsOf: common, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) {
-                let target = value.hasPrefix("/") ? URL(fileURLWithPath: value) : resolved.canonicalURL.appendingPathComponent(value)
-                sbpl += "(deny file-write* (subpath \(try Self.quote(try resolver.resolve(target).canonicalURL.path))))\n"
+        if let repository = try SandboxGitRepository.discover(at:context.roots.project) {
+            for control in repository.controls {
+                sbpl += "(deny file-write* (subpath \(try Self.quote(control.canonicalURL.path))))\n"
             }
         }
         return sbpl
+    }
+    static var probeReadRoots: [Root] {
+        ["/System","/usr/lib","/usr/share","/usr/bin","/usr/sbin","/bin","/sbin","/Library/Apple","/private/etc","/dev","/private/preboot","/private/var/select"].filter { FileManager.default.fileExists(atPath:$0) }.map { Root(url:URL(fileURLWithPath:$0)) } + [Root(url:URL(fileURLWithPath:"/"),subtree:false)] + ["/var","/tmp","/etc"].map { Root(url:URL(fileURLWithPath:$0),subtree:false) }
     }
     static var systemReadRoots: [Root] {
         ["/System", "/usr", "/bin", "/sbin", "/Library", "/private/etc", "/dev", "/opt/homebrew", "/Applications/Xcode.app", "/private/preboot", "/private/var/select"].filter { FileManager.default.fileExists(atPath: $0) }.map { Root(url: URL(fileURLWithPath: $0)) } + [Root(url: URL(fileURLWithPath: "/"), subtree: false)]

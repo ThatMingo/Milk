@@ -16,6 +16,9 @@ resources="$app/Contents/Resources"
 mkdir -p "$app/Contents/MacOS" "$resources"
 binary_directory=$(swift build --show-bin-path "$@")
 cp "$binary_directory/Milk" "$app/Contents/MacOS/Milk"
+mkdir -p "$app/Contents/Helpers"
+cp "$binary_directory/MilkExtensionWorker" "$app/Contents/Helpers/"
+install_name_tool -add_rpath '@executable_path/../Frameworks' "$app/Contents/Helpers/MilkExtensionWorker"
 mkdir -p "$app/Contents/Frameworks" "$resources/ExtensionSDK/Modules/MilkExtensionKit.swiftmodule"
 cp "$binary_directory/libMilkExtensionKit.dylib" "$app/Contents/Frameworks/"
 install_name_tool -add_rpath '@executable_path/../Frameworks' "$app/Contents/MacOS/Milk"
@@ -60,6 +63,7 @@ if [[ -n "${MILK_PROVISIONING_PROFILE:-}" ]]; then
 else
     print -u2 "Milk: no provisioning profile; API-key persistence requires a provisioned build (docs/API_KEYCHAIN.md)."
 fi
+codesign --force --options runtime --identifier dev.milk.extension-worker --entitlements "$PWD/scripts/milk-worker.entitlements" --sign "$identity" "$app/Contents/Helpers/MilkExtensionWorker"
 codesign --force --options runtime --entitlements "$entitlements" --sign "$identity" "$app"
 codesign --verify --deep --strict "$app"
 

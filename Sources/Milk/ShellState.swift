@@ -84,7 +84,7 @@ import MilkExtensionHost
         workspace=WorkspaceStore(persistence:WorkspacePersistence(defaults:preferences,enabled:persist))
         let owner = AgentLifecycleCoordinator()
         let installationRoot: URL? = persist ? nil : FileManager.default.temporaryDirectory.appendingPathComponent("MilkInstallations-" + UUID().uuidString)
-        let installations = PiInstallationManager(store: AgentInstallationStore(root: installationRoot), lifecycle: owner)
+        let installations = PiInstallationManager(store: AgentInstallationStore(root: installationRoot), lifecycle: owner,sandboxSettings:settings.sandbox)
         // Migrate code selection before restoring any workspace. This never probes,
         // downloads or copies a legacy runtime and leaves provider preferences alone.
         try? installations.migrateLegacySelection(AgentConfiguration.load(preferences).runtime)
@@ -93,6 +93,7 @@ import MilkExtensionHost
         installations.prepareForShutdown = { [weak agent] in try agent?.prepareForInstallationChange() }
         installations.sessionRuntimeVersions = { [weak agent] in Set(agent?.sessions.filter { $0.agentID == .pi }.compactMap { $0.metadata.lastRuntimeVersion } ?? []) }
         installations.onSelectionChanged = { [weak agent, weak extensions] in agent?.objectWillChange.send(); extensions?.refresh(workspace: nil) }
+        extensions.sandboxSettings=settings.sandbox
         extensions.lifecycle = agent.lifecycle
         extensions.installations = installations
         extensions.runtimeSelection = { [weak agent] in agent?.configuration.runtime ?? .bundled }
@@ -158,6 +159,9 @@ import MilkExtensionHost
                 if !self.layout.elements.contains(.chat) { self.change { $0.toggle(.chat) } }
             }
             return try await self.agent.authorizePreview(config)
+        }
+        preview.launchAgent = { [weak self] config in
+            guard let self else { throw CancellationError() }; return try await self.agent.launchAgentPreview(config)
         }
         preview.assist={ [weak self] root in
             guard let self else { throw CancellationError() }

@@ -1,10 +1,10 @@
-# Sandbox policy and settings (Phase 2)
+# Sandbox policy, settings and execution (Phase 3)
 
-Milk now has reusable policy/configuration types and a **Settings → Sandbox** page.
-This is preparation for execution enforcement. The configured switch defaults ON,
-but this build does **not** apply these settings to agent processes, Pi tools,
-Preview, Git escalation or extension workers. The settings page states that clearly.
-Ask/Autonomous behavior and the current runtime remain unchanged.
+Milk has a **Settings → Sandbox** page and real filesystem enforcement for the
+Phase 3-covered Pi runtime/tool paths when ON (the default). OFF preserves the
+original unenforced Ask/Autonomous behavior without Sandbox filesystem prompts.
+Later purpose hardening, broader provider acceptance, host-effect integration and acceptance
+remain incomplete; ON is not a claim of full sandbox rollout.
 
 ## Ownership and persistence
 
@@ -76,9 +76,10 @@ aliases; this is not a global inventory of every hard link into protected folder
 
 `SandboxResolvedPath.revalidated()` detects replacement/alias changes against its
 observations. This is **not atomic authorization** or OS enforcement, and it does
-not eliminate rename, hard-link, inode-reuse or check/use races. Later executors
-must freshly evaluate trusted current configuration, revalidate identities at
-admission and bind safe target opening and kernel policy to that execution. A
+not eliminate rename, hard-link, inode-reuse or check/use races. Executors
+freshly evaluate trusted current configuration, revalidate identities at
+admission and compile the current kernel path policy for that execution. This
+path-based Seatbelt profile is not a descriptor-based race-free filesystem API. A
 cached allow/approval decision must never become permanent authority. Filesystem
 metadata access errors fail closed; no personal browser/profile contents are read
 by the tests or needed to populate the recommendations.
@@ -101,11 +102,120 @@ Callers must re-evaluate current policy before applying a live grant. The model
 tracks no process cleanup and makes no retroactive revocation claim for detached
 survivors; the approved L1 limitation is unchanged.
 
-`SandboxEnvironmentDomain` is an interface only: the agent runtime domain may
-receive its configured provider credential; Milk executor/extension-worker domains
-require independent sanitized environments. No environment launcher, credential
-broker or change to the settled Pi credential domain is implemented here.
+## Production execution boundary
 
-Execution, IPC, popup/countdown, TERM/KILL cleanup, managed jobs, real Git escalation,
-worker execution and default-ON enforcement remain later phases in the
-[active ExecPlan](exec-plans/active/SANDBOX_IMPLEMENTATION.md).
+`SandboxProfileBuilder` compiles trusted policy scopes to filesystem Seatbelt rules;
+`SandboxProcess` owns `posix_spawn` children in dedicated groups with close-on-exec
+file descriptors. Invalid policy/profile application fails without an unrestricted
+retry. OS/developer runtime dependencies are read-only, with stronger protected and
+profile roots excluded. The literal root directory read needed by macOS 26 dyld
+and ancestor metadata permissions do not grant an Ask-mode outside subtree read.
+Literal reads of the public `/var`, `/etc`, `/tmp` symlink objects support developer
+shims; these do not authorize their destination subtrees.
+Non-filesystem macOS services/network closure remains later hardening.
+
+`PiSandboxExecution` binds each request to a live activation, fresh host operation
+and random capability over the host-owned runtime RPC pipes. Pi-supplied identifiers
+are correlation only. It re-evaluates policy and grant scope before launch. Read,
+write, edit, bash, grep, find, ls, nested built-ins and user bash use a sibling
+selected-Pi worker with stock public tool factories and only Milk's worker extension.
+Bash uses the public operations hook to keep ordinary children in the owned group.
+Results, images, errors and updates travel back over the same private transport.
+Commands may explicitly declare `sandboxFolders`; Milk does not parse/rewrite shell
+strings or automatically rerun a denied command. Undeclared outside access receives
+the kernel decision. Unknown model/custom/MCP tools reject while ON. Native agent
+effects use the separate API 2 worker route; legacy native bridge effects reject. Direct `pi.exec` and Pi extension children
+remain in the fixed baseline sandbox; they receive no temporary sibling grant.
+
+`SandboxApprovalCenter` presents requests through the existing composer child panel.
+Ask has Once/Session/Deny without a countdown; Autonomous has the configured deadline
+and timeout-deny. Protected requests offer Once/Settings/Deny, never Session. Settings
+closes that request without granting access. Only identical immediate timeout retries
+are suppressed with the approved unavailable-user message; no retry interval is
+exposed to the model. Ordinary editing approvals remain separate.
+
+Operations close future grant admission first, then TERM the owned group, drain
+briefly, KILL and reap. `waitid(WNOWAIT)` retains the leader identity until final
+signalling/reap, avoiding stale PID/group reuse. Session revoke cancels affected active
+workers; policy changes close the runtime. Deliberately detached descendants can
+survive with their inherited profile; no all-descendants-dead or retroactive
+revocation guarantee is claimed. New operations cannot reuse an expired Once grant.
+
+Milk workers receive independently constructed HOME/TMPDIR/profile/PATH environments
+without Local/oMLX credentials. The Pi runtime and Pi-owned subprocesses/extensions
+retain their approved inference-key domain. Version probes on backend resolution use
+a separate read-only work/private-cache profile; broad maintenance/package/probe
+coverage remains later work. Preview inspection uses a private ephemeral profile,
+project read-only rules and read tools; agent-suggested server startup retains a live host origin receipt and runs as an
+explicit sandbox-managed job. Existing-profile-only configured
+provider/auth discovery in the empty inspection profile still needs provider-parity
+integration; Local inspection is covered. Trusted user-started Preview is
+unchanged.
+
+Git metadata writes are denied in ordinary profiles. Controlled real-Git escalation,
+API 2 native agent workers and explicit managed jobs are described in
+[host-effect boundaries](SANDBOX_HOST_EFFECTS.md). Broader purpose coverage and
+rollout remain in the [active ExecPlan](exec-plans/active/SANDBOX_IMPLEMENTATION.md).
+
+## Phase 4 environment admission
+
+The shared `SandboxEnvironment` worker constructor accepts only host work, selected
+support paths and typed toolchain state. Pi-specific provider/profile interpretation
+lives in `PiEnvironment`, not generic Milk core. Workers receive no ambient provider,
+proxy, SSH-agent, shell startup, dynamic-loader or Git configuration variables. Their
+private HOME/TMPDIR/profile and fixed tool PATH are independent of the parent Pi
+credential dictionary. A request containing an env/environment object fails closed.
+
+The Pi runtime retains the documented provider environment contract and explicit
+selected-profile authentication references. Its user-profile configuration is trusted
+runtime configuration; project-controlled metadata and descriptions never select
+extra host credentials. Reserved Milk authority/credential names cannot be imported
+through references. Local Keychain injection happens after this filtering. Version/
+compatibility helpers use a different, credential-free purpose projection and separate
+explicit probe inputs. PATH entries must be absolute/nonempty; unsupported startup
+and Git overrides are stripped. Invalid HOME/TMPDIR or unrepresentable support paths
+fail instead of changing runtime/profile ownership. Configuration admission uses a
+bounded regular-file descriptor/identity check; FIFOs/devices, malformed JSON and
+oversized declarations do not trigger inherited-environment fallback.
+
+The provider contract's known variables and API/header/MCP interpolation fields are
+preserved, including proxy/CA settings in Pi. Opaque ambient extension-specific inputs
+are not broadly inherited; use supported selected-profile configuration or explicit
+adapter-owned runtime inputs. Worker proxy/auth/SDK startup state is not borrowed
+from Pi. DEVELOPER_DIR is a separately validated host toolchain input. Other ambient
+build configuration can be supplied explicitly by the development command within its
+existing filesystem permissions. No read/write permission is added by an env value.
+
+Runtime diagnostics redact known Local/environment credentials; this cannot prevent
+Pi-owned trusted code from explicitly disclosing its credential. Native profile auth
+and OAuth remain Pi-owned. The API-key/no-auth, discovery/inference/model/thinking,
+replacement/revocation, stale-auth and scope contracts are exercised with synthetic
+localhost providers, not a new credential broker or weaker storage.
+
+
+## Phase 5 host effects
+
+A native bridge message is a request, never authority. Active registration/package,
+workspace, activation and operation are checked by Milk, including after awaits.
+No generic privileged file/process/network/clipboard/secret service is available to
+agent workers. User-only native UI/services/slash dispatch keep trusted contexts.
+Static prompt resources are registry text, not code or arbitrary host file reads.
+
+Git elevation is scoped to one exact recognized argv request against the captured
+repository. Bulk operations check stronger roots overlapping the worktree; canonical
+explicit paths and metadata/config controls receive policy checks too. Unsupported
+argv/config forms, changed identity or failed sandboxed real-Git preflight fail closed.
+FS approvals disclose the real-Git hooks/helpers trust exception. A required Sandbox
+approval covers the displayed action; otherwise Ask uses one ordinary action approval.
+Autonomous skips ordinary approval, never Protected/Read Only/inactive policy.
+
+Managed jobs use a separate host operation scope. Once lasts for the explicit job
+until Stop/owned cleanup; completing an ordinary shell operation never adopts a PID
+as a daemon. Session revoke cancels jobs whose compiled profile used that grant.
+Restart keeps job identity but closes the old operation and obtains fresh policy/
+permissions/profile/environment. Future admission closes before owned cleanup, with
+no claim that deliberate detached survivors lose inherited static access.
+
+The filesystem compiler admits the `/dev/null` device required by Git's read/write
+null descriptor only when its classification is ordinary outside-project dependency.
+An explicitly stronger root still wins. No writable `/dev` subtree was added.

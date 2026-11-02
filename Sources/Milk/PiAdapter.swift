@@ -62,9 +62,8 @@ extension AgentID { static let pi = AgentID(rawValue: "pi") }
     }
     func makeBackend(context: AgentBackendContext) -> any AgentBackend {
         var config = configuration(); config.defaultPermission = context.permission
-        return PiBackend(runtime: runtime, discoveryOnly: context.purpose == .previewInspection,
+        return PiBackend(sandboxSettings: context.sandboxSettings ?? SandboxSettingsStore(defaults: defaults), runtime: runtime, discoveryOnly: context.purpose == .previewInspection,
                          nativeExtensions: nativeExtensions, configuration: config, providerConfigurationLoader: providerConfiguration, providerProfileIdentityLoader: { try PiProfileIdentitySupport.identity(runtime: runtime, installations: installations, mode: configuration().runtime).rawValue }, lifecycle: context.lifecycle,
-                         sandboxSettings: context.sandboxSettings ?? SandboxSettingsStore(defaults: defaults),
                          sandboxProfiles: [
                             .init(id: "pi-managed", agentID: .pi, url: (installations?.store.root ?? AgentInstallationStore().root).appendingPathComponent("profile"), ownership: .managed),
                             .init(id: "pi-existing", agentID: .pi, url: PiProfile.existing(environment: ProcessInfo.processInfo.environment.merging(runtime.environmentOverrides) { _, new in new }).directory, ownership: .existing)

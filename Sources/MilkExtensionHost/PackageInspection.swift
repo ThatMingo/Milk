@@ -60,6 +60,7 @@ public struct NativePackageInspector {
         guard manifest.milkApi == MilkExtensionAPI.version else { throw NativeExtensionError.invalid("Unsupported Milk Extension API \(manifest.milkApi). This Milk supports API \(MilkExtensionAPI.version).") }
         guard try ExtensionVersion(manifest.minimumMilkVersion) <= ExtensionVersion(milkVersion) else { throw NativeExtensionError.invalid("Requires Milk \(manifest.minimumMilkVersion) or later.") }
         guard Set(manifest.capabilities).count == manifest.capabilities.count else { throw NativeExtensionError.invalid("Duplicate capability declarations.") }
+        if let worker=manifest.agentWorkerClass, worker.range(of:#"^[A-Za-z_][A-Za-z0-9_.]*$"#,options:.regularExpression) == nil { throw NativeExtensionError.invalid("Invalid agent worker class.") }
         guard Self.component(manifest.executable), manifest.principalClass.range(of:#"^[A-Za-z_][A-Za-z0-9_.]*$"#,options:.regularExpression) != nil else { throw NativeExtensionError.invalid("Invalid executable or principal class.") }
         let executable=url.appendingPathComponent("Contents/MacOS/"+manifest.executable)
         guard fm.isExecutableFile(atPath:executable.path), (try executable.resourceValues(forKeys:[.isRegularFileKey])).isRegularFile == true else { throw NativeExtensionError.invalid("Native bundle executable is missing or not executable.") }

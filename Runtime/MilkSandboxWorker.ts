@@ -8,18 +8,33 @@ export default function(pi: any) {
     if(used)throw Error("Worker cannot execute another operation"); used=true;
     const request=JSON.parse(raw);
     try {
+      // Stock Pi's local Bash backend uses detached:true. Use its public operations
+      // hook here so ordinary shells/background children remain in Milk's owned group.
+      const operations={exec:(command:string,cwd:string,options:any)=>new Promise<any>((resolve,reject)=>{
+        const child=spawn("/bin/bash",["-c",command],{cwd,env:options.env??process.env,detached:false,stdio:["ignore","pipe","pipe"]});
+        let settled=false;
+        const finish=(error:any,exitCode?:number)=>{
+          if(settled)return;settled=true;if(timer)clearTimeout(timer);
+          child.stdout.destroy();child.stderr.destroy();
+          error?reject(error):resolve({exitCode});
+        };
+        const timer=options.timeout?setTimeout(()=>finish(Error(`timeout:${options.timeout}`)),options.timeout*1000):undefined;
+        child.stdout.on("data",options.onData);child.stderr.on("data",options.onData);
+        child.on("error",(error:any)=>finish(error));
+        child.on("exit",(code:number,signal:string)=>setTimeout(()=>finish(undefined,code??128),25));
+      })};
+      let result:any;
       if(request.tool==="user_bash") {
-        const result=await new Promise<any>((resolve,reject)=>{
-          const child=spawn("/bin/bash",["-c",request.args.command],{cwd:process.cwd(),env:process.env,stdio:["ignore","pipe","pipe"]});
-          child.stdout.on("data",(data:Buffer)=>ctx.ui.setStatus("milk-worker-update",JSON.stringify({bytes:data.toString("base64")})));
-          child.stderr.on("data",(data:Buffer)=>ctx.ui.setStatus("milk-worker-update",JSON.stringify({bytes:data.toString("base64")})));
-          child.on("error",reject);child.on("close",(exitCode:number)=>resolve({exitCode}));
+        result=await operations.exec(request.args.command,process.cwd(),{
+          timeout:request.args.timeout,
+          onData:(data:Buffer)=>ctx.ui.setStatus("milk-worker-update",JSON.stringify({bytes:data.toString("base64")}))
         });
-        ctx.ui.setStatus("milk-worker-result",JSON.stringify({result}));return;
+      } else {
+        const factory=factories[request.tool];if(!factory)throw Error("Unsupported worker tool");
+        const tool=request.tool==="bash"?factory(process.cwd(),{operations}):factory(process.cwd());
+        result=await tool.execute("milk-owned-operation",request.args,undefined,
+          (update:any)=>ctx.ui.setStatus("milk-worker-update",JSON.stringify({update})));
       }
-      const factory=factories[request.tool];if(!factory)throw Error("Unsupported worker tool");
-      const result=await factory(process.cwd()).execute("milk-owned-operation",request.args,undefined,
-        (update:any)=>ctx.ui.setStatus("milk-worker-update",JSON.stringify({update})));
       ctx.ui.setStatus("milk-worker-result",JSON.stringify({result}));
     } catch(error:any) {ctx.ui.setStatus("milk-worker-result",JSON.stringify({error:String(error?.message??error)}));}
   }});

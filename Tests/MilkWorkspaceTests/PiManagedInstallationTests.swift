@@ -331,7 +331,7 @@ final class PiManagedInstallationTests: XCTestCase {
         let executable = root.appendingPathComponent("probe peer")
         try FileManager.default.copyItem(at: project.appendingPathComponent("Tests/Fixtures/pi_parity_peer.py"), to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        let runtime = PiRuntimeService(resources: manager.runtime.resources, environmentOverrides: ["MILK_PARITY_READY": "1"])
+        let runtime = PiRuntimeService(resources: manager.runtime.resources, environmentOverrides: ["MILK_PARITY_READY": "1"], probeEnvironmentOverrides: ["MILK_PARITY_READY":"1"])
         var record = AgentInstallationRecord(id: .init(rawValue: "fixture-managed-probe"), agentID: .pi, ownership: .milkManaged,
             source: .milkApproved, executable: executable, expectedVersion: "1.4.0", executableSHA256: try PiInstallationFiles.digest(executable))
         let report = try await PiCompatibilityProbe.inspect(installation: record, runtime: runtime, lifecycle: manager.lifecycle)

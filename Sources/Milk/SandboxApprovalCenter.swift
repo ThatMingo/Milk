@@ -6,8 +6,22 @@ import Foundation
     private var pending: [String: Pending] = [:]
     private var timers: [String: Task<Void, Never>] = [:]
     private var timedOut: [String: Date] = [:]
+    private var actionAllowances: Set<String> = []
     var event: ((AgentEvent) -> Void)?
-    func request(_ decision: SandboxPolicyDecision, operation: SandboxOperationScope, tool: String, command: String?, mode: ComposerPermissionMode, timeout: Double) async throws -> SandboxGrantLifetime {
+    func action(operation: SandboxOperationScope, tool: String, command: String, effect: String, mode: ComposerPermissionMode) async throws {
+        let key = tool + "\n" + command
+        if mode == .autonomous || actionAllowances.contains(key) { return }
+        let id = "milk-action-" + UUID().uuidString
+        let answer: SandboxGrantLifetime = try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                pending[id] = .init(continuation:continuation,protected:false,key:key)
+                event?(.approval(.init(id:id,method:.select,title:"Agent action permission",message:"",options:["Deny","Allow for Session","Allow Once"],tool:tool,command:command,workingDirectory:operation.activation.workspace.path,reason:"The agent requested this action.",effect:effect,origin:.agentPermission,activation:operation.activation)))
+            }
+        },onCancel:{ Task { @MainActor [weak self] in self?.finish(id,.failure(CancellationError())) } })
+        if answer == .session { actionAllowances.insert(key) }
+    }
+    func request(_ decision: SandboxPolicyDecision, operation: SandboxOperationScope, tool: String, command: String?, mode: ComposerPermissionMode, timeout: Double, effect: String? = nil) async throws -> SandboxGrantLifetime {
         guard let path = decision.path, decision.requiresApproval else { throw SandboxPathError.invalidPath }
         let key = [tool, command ?? "", path.canonicalURL.path, decision.action.rawValue].joined(separator: "\n")
         if let denied = timedOut[key], Date().timeIntervalSince(denied) < 15 { throw AgentError.message(Self.unavailable) }
@@ -21,11 +35,11 @@ import Foundation
                     message: "", options: protected ? ["Deny", "Sandbox Settings", "Allow Once"] : ["Deny", "Allow for Session", "Allow Once"],
                     tool: tool, action: path.canonicalURL.path, command: command, workingDirectory: operation.activation.workspace.path,
                     reason: "\(decision.action.rawValue.capitalized) access requested by \(tool).",
-                    effect: protected ? "This location may contain credentials or authentication data. Access applies only to this operation." : "The permission applies to sibling execution, never the fixed agent runtime.",
+                    effect: (effect.map { $0 + " " } ?? "") + (protected ? "This location may contain credentials or authentication data. Access applies only to this operation." : "The permission applies to sibling execution, never the fixed agent runtime."),
                     risk: protected ? "Protected" : nil, origin: .milkSandbox, activation: operation.activation)
                 if mode == .autonomous { request.sandboxDeadline = Date().addingTimeInterval(timeout) }
                 event?(.approval(request))
-                if mode == .autonomous {
+                if mode == .autonomous, pending[id] != nil {
                     timers[id] = Task { [weak self] in
                         let end = Date().addingTimeInterval(timeout)
                         while Date() < end {
@@ -41,6 +55,7 @@ import Foundation
             }
         }, onCancel: { Task { @MainActor [weak self] in self?.finish(id, .failure(CancellationError())) } })
     }
+    func contains(_ id: String) -> Bool { pending[id] != nil }
     func respond(_ request: AgentApproval, response: AgentDialogResponse) throws {
         guard let item = pending[request.id] else { throw CancellationError() }
         switch response {

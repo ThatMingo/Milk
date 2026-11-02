@@ -4,10 +4,11 @@ import PackageDescription
 let package = Package(
     name: "Milk",
     platforms: [.macOS("26.0")],
-    products: [.executable(name: "Milk", targets: ["Milk"])],
+    products: [.executable(name: "Milk", targets: ["Milk"]), .executable(name:"MilkExtensionWorker",targets:["MilkExtensionWorker"])],
     dependencies: [.package(path:"Packages/MilkExtensionKit"), .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.99.2")],
     targets: [
         .target(name: "MilkLayout"),
+        .executableTarget(name:"MilkExtensionWorker",dependencies:[.product(name:"MilkExtensionKit",package:"MilkExtensionKit")]),
         .target(name: "MilkExtensionHost", dependencies: [.product(name:"MilkExtensionKit",package:"MilkExtensionKit"), "MilkPTY"]),
         .target(name: "MilkPTY"),
         .target(name: "MilkArchive", linkerSettings: [.linkedLibrary("archive")]),

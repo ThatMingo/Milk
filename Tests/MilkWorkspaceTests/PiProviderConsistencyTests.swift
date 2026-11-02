@@ -131,7 +131,7 @@ final class PiProviderConsistencyTests: XCTestCase {
         var retainedSession = AgentSession(id: 1, title: "Managed consistency")
         @MainActor func run(_ session: AgentSession, prompt: Bool, expectedMarker: String, expectedNoAuth: Bool) async throws -> String {
             let before = (try? String(contentsOf: log, encoding: .utf8).split(separator: "\n").count) ?? 0
-            let backend = adapter.makeBackend(context: .init(permission: .autonomous, lifecycle: manager.lifecycle))
+            let backend = adapter.makeBackend(context: .init(permission: .autonomous, lifecycle: manager.lifecycle, sandboxSettings: sandboxOffForLegacyTests()))
             var path: String?, sessionID: String?, settled = false, failures: [String] = [], markers = "", commands: [AgentCommand] = [], models: [AgentModel] = [], levels: [String] = [], history: [AgentMessage] = []
             backend.onEvent = { event in
                 switch event {
@@ -226,7 +226,7 @@ final class PiProviderConsistencyTests: XCTestCase {
         try Data("key".utf8).write(to: control)
         _ = try await run(retainedSession, prompt: false, expectedMarker: "managed-marker", expectedNoAuth: false)
         XCTAssertTrue(try Data(contentsOf: URL(fileURLWithPath: retainedSession.sessionFile!)).starts(with: originalHistory))
-        let foreign = adapter.makeBackend(context: .init(permission: .approval))
+        let foreign = adapter.makeBackend(context: .init(permission: .approval, sandboxSettings: sandboxOffForLegacyTests()))
         do { try await foreign.start(workspace: root, session: .init(id: 4, title: "Wrong profile", sessionFile: existingSession)); XCTFail("Managed Pi cannot resume a foreign profile file") } catch { XCTAssertTrue(error.localizedDescription.contains("different Pi profile"), error.localizedDescription) }
         try await foreign.shutdownAndWait()
         try await manager.removeManagedPi()

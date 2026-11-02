@@ -17,7 +17,9 @@ class CleanAppResourcesTests(unittest.TestCase):
             root = pathlib.Path(folder)
             # This source tree deliberately has no Runtime/PiRuntime at all.
             (root / 'source/Runtime').mkdir(parents=True)
-            (root / 'source/Runtime/MilkPiIntegration.ts').write_bytes((ROOT / 'Runtime/MilkPiIntegration.ts').read_bytes())
+            integration = {'MilkPiIntegration.ts', 'MilkSandboxBridge.ts', 'MilkSandboxWorker.ts'}
+            for name in integration:
+                (root / 'source/Runtime' / name).write_bytes((ROOT / 'Runtime' / name).read_bytes())
             for name in module.NOTICES:
                 path = root / 'source/ThirdPartyNotices' / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -26,7 +28,7 @@ class CleanAppResourcesTests(unittest.TestCase):
             module.stage(root / 'source', resources)
             self.assertTrue((resources / 'MilkPiIntegration.ts').is_file())
             self.assertEqual(set(str(p.relative_to(resources)) for p in resources.rglob('*') if p.is_file()),
-                             {'MilkPiIntegration.ts'} | {'ThirdPartyNotices/' + name for name in module.NOTICES})
+                             integration | {'ThirdPartyNotices/' + name for name in module.NOTICES})
             self.assertFalse((resources / 'PiRuntime').exists())
             script = (ROOT / 'scripts/build.sh').read_text()
             self.assertIn('python3 scripts/stage-app-resources.py "$resources"', script)

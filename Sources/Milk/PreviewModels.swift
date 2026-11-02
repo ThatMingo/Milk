@@ -12,6 +12,9 @@ struct PreviewConfiguration: Codable, Equatable {
     var directory: URL
     var entryPath: String = ""
     var suggestedURL: URL?
+    var agentSuggested: Bool? = nil
+    var agentReceipt: UUID? = nil
+    enum CodingKeys: String, CodingKey { case kind, command, directory, entryPath, suggestedURL, agentSuggested }
 }
 struct PreviewMemory: Codable {
     var url: URL?

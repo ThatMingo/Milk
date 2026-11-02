@@ -11,6 +11,9 @@ struct PiLaunchContext {
     let environment: [String: String]
     let dataProfile: AgentDataProfile
     let compatibility: AgentCompatibilityResult
+    var environmentOverrides: [String:String] = [:]
+    var toolchain: SandboxToolchainEnvironment? = nil
+    var executableClosure: SandboxExecutableClosure? = nil
     var bundled: Bool { installation.ownership == .applicationBundle }
 }
 
@@ -61,20 +64,31 @@ struct PiLaunchResolver {
                 }
                 support = paths
             }
-            environment["PATH"] = (support.map(\.path) + [environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"]).joined(separator: ":")
-            if let profile { environment["PI_CODING_AGENT_DIR"] = profile.directory.path }
-            environment["PI_OFFLINE"] = "1"
-            let detected = try await runtime.version(of: location.executable, lifecycle: lifecycle, environment: environment, directory: probeDirectory)
+            // Resolve ownership from the selected environment before dropping ambient inputs.
+            let selectedProfile = profile ?? PiProfile.existing(environment: environment)
+            environment = try PiEnvironment.runtime(source:environment,explicit:runtime.environmentOverrides,profile:selectedProfile,support:support)
+            let versionWork = FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Version-Environment-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at:versionWork,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+            defer { try? FileManager.default.removeItem(at:versionWork) }
+            let selectedToolchain = try SandboxToolchainEnvironment(source:environment)
+            let probeEnvironment = PiEnvironment.probe(source:environment,explicit:runtime.probeEnvironmentOverrides,work:versionWork,support:support,toolchain:selectedToolchain)
+            let codeRoot: URL? = installation.ownership == .external ? nil : location.executable.deletingLastPathComponent()
+            let detected = try await runtime.version(of:location.executable,lifecycle:lifecycle,environment:probeEnvironment,directory:probeDirectory,support:support,codeRoot:codeRoot)
             version = detected; try Task.checkCancellation()
             if let expected = location.manifest?.version ?? installation.expectedVersion, expected != detected {
                 throw AgentError.message("Pi version does not match its pinned runtime metadata.")
             }
             let compatibility = PiCompatibilityPolicy.evaluate(version: detected)
             try PiCompatibilityPolicy.requireSupportedVersion(compatibility)
-            let selectedProfile = profile ?? PiProfile.existing(environment: environment)
+            if let probeDirectory {
+                environment = PiEnvironment.probe(source:environment,explicit:runtime.probeEnvironmentOverrides,work:probeDirectory,support:support,toolchain:selectedToolchain)
+                environment["PI_CODING_AGENT_DIR"] = selectedProfile.directory.path
+            }
+            let authority=SandboxLaunchAuthority.capture()
+            let closure = authority.configuration.enabled ? try SandboxExecutableClosure.inspect(location.executable,support:support,codeRoot:codeRoot,toolchain:selectedToolchain) : nil
             return .init(installation: installation, executable: location.executable, version: detected,
                          integration: location.integration, supportPaths: support, environment: environment,
-                         dataProfile: probeDirectory == nil ? selectedProfile : .init(directory: selectedProfile.directory, ownership: .ephemeralMilk), compatibility: compatibility)
+                         dataProfile: probeDirectory == nil ? selectedProfile : .init(directory: selectedProfile.directory, ownership: .ephemeralMilk), compatibility: compatibility, environmentOverrides: runtime.environmentOverrides, toolchain: selectedToolchain,executableClosure:closure)
         } catch is CancellationError { throw CancellationError() }
         catch let error as AgentCompatibilityError { throw error }
         catch { throw AgentCompatibilityError(result: PiCompatibilityPolicy.result(.invalidRuntime, version: version, detail: error.localizedDescription)) }

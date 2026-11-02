@@ -58,6 +58,21 @@ explicit click. Originals remain for recovery, including after removal of the
 new entry. After import choose API-key mode and Save. Prefer pasting a new
 Milk-specific sub-key if legacy entries contain an admin key.
 
+## Current sandbox runtime boundary
+
+Phase 4 retains this Data Protection Keychain implementation and exact profile/endpoint
+accounts. Ambient Milk credential variables are discarded before a fresh scoped read.
+The active key may enter Pi and its extensions, pi.exec, subprocesses and stdio MCP
+(the approved trusted inference-key domain). Independently constructed Milk sibling/
+worker environments and their shell/Python/Node/npm descendants exclude it. Version
+and compatibility helpers do not receive provider credentials. Known credentials are
+redacted from Milk RPC errors/stderr, including partial reads. No broker, plaintext
+fallback, new entitlement or credential copy into Preview auth files was introduced.
+See [runtime environments](../RUNTIME.md#purpose-specific-environments-phase-4) and
+[Sandbox policy](SANDBOX_POLICY.md). This does not claim protection against Pi-owned
+code deliberately using/disclosing its trusted key, or successful provisioned Keychain
+acceptance in the current ad-hoc build.
+
 ## Signing: development and release
 
 The bundle ID stays `dev.milk.phase1`. Data Protection Keychain authorization
@@ -126,8 +141,8 @@ For full UI/Keychain oMLX acceptance in a provisioned build:
 7. Verify the other profile/endpoint does not inherit this key. Do not put keys
    in screenshots, shell commands, logs, diagnostics, or bug reports.
 
-No Seatbelt, subprocess isolation, credential broker, or broader provider redesign
-is included. The active key remains in Pi's process environment as before; this
+The original API/Keychain phase did not include Seatbelt, subprocess isolation,
+a credential broker or broader provider redesign. The active key remains in Pi's process environment as before; this
 phase does not claim protection against arbitrary code executing inside Pi or
 Milk. Native extensions receive no credential lookup API. Runtime hardening is a
 separate phase.

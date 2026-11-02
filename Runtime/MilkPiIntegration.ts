@@ -2,7 +2,7 @@
  * Only Pi's documented extension hooks and RPC UI subprotocol are used.
  */
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
-import { installSandboxBridge } from "./MilkSandboxBridge.ts";
+import { installSandboxBridge, executeMilkOperation, setNativeToolCheck } from "./MilkSandboxBridge.ts";
 import { Type } from "@earendil-works/pi-ai";
 
 export default function (pi: any) {
@@ -25,6 +25,7 @@ export default function (pi: any) {
   const catalogPath = process.env.MILK_NATIVE_CATALOG;
   let nativeCatalog: any = { tools: [], prompts: {} };
   const nativeDefinitions = new Map<string, any>();
+  setNativeToolCheck(name=>nativeCatalog.tools.some((tool:any)=>tool.name===name));
   async function nativeRequest(ctx: any, payload: any) {
     const reply = await ctx.ui.input(JSON.stringify({ milkNativeBridge: 1, ...payload }));
     if (!reply) throw new Error("Milk native request cancelled");
@@ -44,8 +45,8 @@ export default function (pi: any) {
         const definition = {
           name: tool.name, label: tool.name, description: tool.description,
           parameters: Type.Unsafe(tool.parameters), exposure: "direct",
-          execute: async (_id: any, args: any, _signal: any, _update: any, ctx: any) =>
-            nativeRequest(ctx, { contribution: tool.id, arguments: args })
+          execute: async (_id: any, args: any, signal: any, update: any, ctx: any) =>
+            executeMilkOperation(ctx,"native_extension",{id:tool.id,arguments:args},signal,update)
         };
         pi.registerTool(definition); nativeDefinitions.set(tool.name, definition);
       }
@@ -103,6 +104,7 @@ export default function (pi: any) {
     if (process.env.MILK_PREVIEW_DISCOVERY === "1" && !["read", "grep", "find", "ls"].includes(event.toolName)) {
       return { block: true, reason: "Preview discovery may only inspect project files. It cannot execute commands or modify files." };
     }
+    if (["milk_git","milk_job","milk_native_prompt_resource"].includes(event.toolName) || nativeDefinitions.has(event.toolName)) return; // The host merges policy and ordinary approval for these effects.
     if (permission === "autonomous") return;
     // Known read-only built-ins do not need an approval. Unknown tools do.
     if (["read", "grep", "find", "ls"].includes(event.toolName)) return;

@@ -157,3 +157,13 @@ profile identity identifies the actual resolved persistent Pi directory.
 
 Verification and exact file inventory are in the final correction section of
 [Phase 3](PROVIDER_PROFILE_PHASE_3.md#final-existing-profile-identity-correction).
+
+## Current environment construction
+
+Phase 4 resolves the selected HOME/profile before filtering launch variables. Managed
+and Existing directory identity, settings hashes, native sessions and credential scope
+are unchanged. Pi's selected profile is explicit in runtime environment; ephemeral
+version/compatibility work receives its own HOME/TMP/profile and no provider keys.
+Runtime-only custom provider overrides are not helper inputs. Sandbox ON Preview's
+private inspection profile still covers Local; user-owned auth/OAuth files from an
+Existing profile are not duplicated to make other Preview providers available.

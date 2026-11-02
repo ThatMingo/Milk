@@ -28,7 +28,7 @@ open output/Milk.app
 ```
 
 The script builds the app and dynamic MilkExtensionKit SDK, stages resources in a
-temporary directory under `output/`, signs both SDK copies and the app, verifies
+temporary directory under `output/`, signs both SDK copies, the separate agent-extension helper and the app, verifies
 the signature, then replaces `output/Milk.app`. Development signing is ad hoc by
 default. `CODESIGN_IDENTITY` can select an identity; this does not perform
 notarization or establish release acceptance.
@@ -123,7 +123,7 @@ to compile Milk or a native Milk extension.
 
 ## Sandbox policy tests
 
-Phase 2 policy, path, settings and grant tests use disposable files/preferences:
+Sandbox policy, path, settings, grants and Phase 3 execution tests use disposable files/preferences:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -132,6 +132,30 @@ swift test --cache-path "$PWD/.build/cache" --filter Sandbox
 ```
 
 Add `--disable-sandbox` if the host's nested SwiftPM sandbox blocks the build.
-These tests do not launch the production sandbox or use provider credentials.
+The `SandboxExecutionTests` and `SandboxPiIntegrationTests` launch the production
+Seatbelt/worker paths on macOS 26+, use the optional pinned Pi fixture, and require
+host child-process permissions and a disposable localhost provider. They use
+synthetic credentials through a fake credential store, never personal Keychain data.
+`SandboxPopupTests` renders the real anchored child panel in light/dark appearance;
+its disposable captures are written under `/private/tmp`. Older provider/native
+extension tests explicitly select Sandbox OFF to preserve their compatibility scope.
 The opt-in Phase 1 native/Pi harness is separate under `Tests/SandboxPhase1/`.
 See [Sandbox policy](SANDBOX_POLICY.md) for the current implementation and its limits.
+
+Phase 4 adds `SandboxEnvironmentTests` and `SandboxProviderParityTests`: hostile
+ambient/startup inputs, bounded configuration admission, actual RPC diagnostic
+redaction, custom runtime-vs-helper credential scope, typed Xcode selection, Local
+key rotation/revocation/None and native configured-provider auth/env precedence.
+The existing actual Pi/MCP and shell/Python/Node/npm tests now cover both domains.
+All keys/providers are synthetic; personal Keychain or live oMLX access is unnecessary.
+Fixture-only probe controls must use the separate `probeEnvironmentOverrides` input.
+
+
+Phase 5 adds the Milk-owned `MilkExtensionWorker` SwiftPM product under
+`Contents/Helpers`. It is signed with `scripts/milk-worker.entitlements` (library
+validation exception only), a distinct identifier, and no Milk Keychain identity or
+provisioning profile. The app and SDK signing flow is otherwise unchanged. It is
+not a bundled coding agent. Rebuild API 1 native packages for API 2; view/layout/
+settings registrations remain, while agent handlers must move to the worker entry.
+See [extension development](EXTENSION_DEVELOPMENT.md) and
+[host-effect boundaries](SANDBOX_HOST_EFFECTS.md).

@@ -77,6 +77,8 @@ struct AgentWorkspaceState: Codable {
         var continuation: CheckedContinuation<PreviewConfiguration, Error>
     }
     private var previewDecisions: [String: PreviewDecision] = [:]
+    private struct AgentPreviewOrigin { let session: Int; let activation: AgentActivation?; let workspace: URL; let generation: UUID; let configuration: PreviewConfiguration }
+    private var agentPreviewReceipts: [UUID:AgentPreviewOrigin] = [:]
     private var previewAllowances: Set<String> = []
     private var previewActivitySessions: [String: Int] = [:]
     private var archived: [AgentSession] = []
@@ -93,6 +95,7 @@ struct AgentWorkspaceState: Codable {
     private var historyRevision = UUID()
     let sandboxSettings: SandboxSettingsStore
     var onSandboxSettings: (() -> Void)?
+    private var sandboxObservation: AnyCancellable?
     let lifecycle: AgentLifecycleCoordinator
     private var leases: [Int: AgentRuntimeLease] = [:]
     private var actionSessions: [UUID: Int] = [:]
@@ -137,6 +140,16 @@ struct AgentWorkspaceState: Codable {
         selection = .init(defaults: defaults, registry: registered)
         self.sessionIndex = sessionIndex ?? AgentSessionIndex(file: workspace.persistence.directory.deletingLastPathComponent().appendingPathComponent("Sessions/index-v1.json"), enabled: workspace.persistence.enabled)
         configuration = .load(defaults)
+        var priorSandbox = self.sandboxSettings.configuration
+        sandboxObservation = self.sandboxSettings.$configuration.dropFirst().sink { [weak self] value in
+            var prior = priorSandbox; priorSandbox = value; prior.autonomousTimeoutSeconds = value.autonomousTimeoutSeconds
+            if prior != value, let self {
+                let connected=Set(self.backends.keys).union(self.starts.keys)
+                self.shutdown() // Close authority and drain old leases before their replacements can start.
+                for id in connected where !self.terminating && self.sessions.contains(where:{ $0.id == id }) { self.connect(id) }
+            }
+        }
+
     }
     func availability(_ session: AgentSession) -> SessionAvailability {
         guard let owner = registry.adapter(for: session.agentID) else { return .init(state: .agentUnavailable, detail: "The session's owning agent is unavailable; its history is retained.") }
@@ -517,6 +530,7 @@ struct AgentWorkspaceState: Codable {
         flushStream(id)
         retryingErrors[id] = nil; runtimeMessageIDs[id] = nil
         recoverQueued(id)
+        agentPreviewReceipts=agentPreviewReceipts.filter { $0.value.session != id }
         backendTokens[id] = nil; actionTokens[id] = UUID()
         for (key, session) in actionSessions where session == id { actionTasks[key]?.cancel() }
         starts.removeValue(forKey: id)?.cancel()
@@ -532,11 +546,15 @@ struct AgentWorkspaceState: Codable {
     }
     func discoverPreview(root: URL) async throws -> PreviewConfiguration {
         guard !terminating, workspace.workspace?.url == root else { throw CancellationError() }
-        let generation = workspaceGeneration
+        if sessions.isEmpty { newSession() }
+        let generation = workspaceGeneration, session=selectedSession, activation=backendTokens[selectedSession]
         guard let adapter else { throw AgentError.message("The selected agent is unavailable for Preview inspection.") }
-        let result = try await adapter.discoverPreview(root: root, model: selectedModel, lifecycle: lifecycle)
+        var result = try await adapter.discoverPreview(root: root, model: selectedModel, lifecycle: lifecycle)
         try Task.checkCancellation()
         guard workspaceGeneration == generation else { throw CancellationError() }
+        guard backendTokens[session] == activation else { throw CancellationError() }
+        result.agentSuggested=true; let receipt=UUID(); result.agentReceipt=receipt
+        agentPreviewReceipts[receipt] = .init(session:session,activation:activation,workspace:root,generation:generation,configuration:result)
         return result
     }
     func submit() {
@@ -633,7 +651,11 @@ struct AgentWorkspaceState: Codable {
         pendingActions.insert(id)
         run(id) {
             defer { if self.actionIsCurrent(id) { self.pendingActions.remove(id) } }
-            try await self.ensureBackend(id); try await self.backends[id]?.setPermission(mode)
+            try await self.ensureBackend(id)
+            if self.backends[id]?.permissionChangesRequireRestart == true, self.conversations[id]?.permission != mode {
+                try self.checkAction(id); self.conversations[id]?.permission = mode; self.invalidateRuntime(id); return
+            }
+            try await self.backends[id]?.setPermission(mode)
             try self.checkAction(id)
             self.conversations[id]?.permission = mode
         }
@@ -876,7 +898,7 @@ struct AgentWorkspaceState: Codable {
         for id in sessions.map(\.id) { invalidateRuntime(id) }
         lifecycle.invalidateAll()
         slashCommands=[:]; refreshingSlashCommands=[:]
-        cancelPreviewDecisions(); previewAllowances = []; previewActivitySessions = [:]
+        cancelPreviewDecisions(); agentPreviewReceipts = [:]; previewAllowances = []; previewActivitySessions = [:]
         workspaceGeneration = UUID(); backendTokens = [:]; actionTokens = [:]
         for task in actionTasks.values { task.cancel() }; actionTasks = [:]; actionSessions = [:]
         starts = [:]; backends = [:]; leases = [:]
@@ -891,7 +913,22 @@ struct AgentWorkspaceState: Codable {
     private func previewAllowanceKey(_ config: PreviewConfiguration, session: Int) -> String {
         "\(session)\n\(workspace.workspace?.url.path ?? "")\n\(config.directory.path)\n\(config.kind.rawValue)\n\(config.command)"
     }
+    func launchAgentPreview(_ config: PreviewConfiguration) async throws -> AgentManagedJob {
+        guard config.agentSuggested == true, let receipt=config.agentReceipt, let origin=agentPreviewReceipts[receipt],
+              config == origin.configuration, workspace.workspace?.url == origin.workspace, workspaceGeneration == origin.generation,
+              sessions.contains(where:{ $0.id == origin.session }) else { throw AgentError.message("Agent Preview origin expired. Ask the current session to inspect the project again.") }
+        if let activation=origin.activation, backendTokens[origin.session] != activation { throw CancellationError() }
+        // Inspection stays an independent auxiliary resource; only explicit launch connects the owning session.
+        try await ensureBackend(origin.session)
+        guard workspaceGeneration == origin.generation, agentPreviewReceipts[receipt] != nil,
+              leases[origin.session]?.valid == true, let backend=backends[origin.session] else { throw CancellationError() }
+        // Static agent suggestions use the same owned executor rather than the trusted Milk helper.
+        let command=config.kind == .staticFiles ? "exec /usr/bin/python3 -u -m http.server 0 --bind 127.0.0.1" : config.command
+        return try await backend.startManagedJob(.init(command:command,directory:config.directory,purpose:.preview))
+    }
     func authorizePreview(_ config: PreviewConfiguration) async throws -> PreviewConfiguration {
+        if config.agentSuggested == true { return config } // The owning executor merges policy and action approval.
+
         let id = selectedSession
         guard sessions.contains(where: { $0.id == id }) else { throw AgentError.message("Create or select a Pi session to approve Preview startup.") }
         if current.permission == .autonomous || previewAllowances.contains(previewAllowanceKey(config, session: id)) { return config }

@@ -60,7 +60,7 @@ struct ComposerApprovalPopup: View {
                             Text(command).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }.font(.system(size: 12, design: .monospaced)).padding(10)
                             .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 7))
-                    } else if let action = request.action, !action.isEmpty {
+                    } else if request.origin != .milkSandbox, let action = request.action, !action.isEmpty {
                         Text(action).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }
                     if request.origin == .milkSandbox, let path = request.action { metadata("Path", value: path) }
@@ -105,7 +105,7 @@ struct ComposerApprovalPopup: View {
             Button("Allow Once") { agent.respond(request, session: presentation.session, confirmed: true) }.buttonStyle(MilkButtonStyle(bordered: true))
         } else {
             ForEach(request.options.filter { $0 != "Deny" && $0 != "Edit Command" && $0 != "Allow Once" }, id: \.self) { option in
-                Button(option == "Allow for Session" ? "For session" : option) { agent.respond(request, session: presentation.session, value: option) }
+                Button(option == "Allow for Session" && request.origin != .milkSandbox ? "For session" : option) { agent.respond(request, session: presentation.session, value: option) }
                     .buttonStyle(MilkButtonStyle()).accessibilityLabel(option)
             }
             if request.options.contains("Allow Once") {

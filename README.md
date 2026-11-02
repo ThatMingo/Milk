@@ -20,10 +20,11 @@ The canonical application version is in [VERSION](VERSION), targeting **Apple Si
 - **Preview:** WebKit pages, local static HTML and project development servers.
   Framework previews use the project's own tools and dependencies.
 - **Settings:** appearance/editor preferences, agent installation management,
-  agent-owned provider configuration and Sandbox policy preparation. Sandbox
-  settings are saved; agent execution enforcement is not active yet.
+  agent-owned provider configuration and Sandbox permissions. Sandbox ON constrains
+  Pi runtime and supported tools; later integration and hardening phases remain.
 - **Native Milk extensions:** trusted `.milkext` packages can add UI, commands
-  and services through MilkExtensionKit.
+  and services through MilkExtensionKit API 2. Agent-callable tools run in separate
+  Milk sandbox workers; native UI remains trusted.
 
 Files, Git, Terminal, normal Preview and retained session browsing remain usable
 without a coding agent. Agent chat and agent-assisted Preview require a working

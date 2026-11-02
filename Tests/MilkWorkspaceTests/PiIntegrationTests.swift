@@ -56,7 +56,7 @@ final class PiIntegrationTests: XCTestCase {
         var configuration = AgentConfiguration(); var provider = PiProviderConfiguration()
         provider.provider = .local; provider.local.endpoint = URL(string: "http://127.0.0.1:\(port)")!
         provider.local.models = ["milk-fixture", "reasoning-fixture"].map { .init(id: $0, contextWindow: 64000, maxTokens: 4096, reasoning: $0 == "reasoning-fixture", images: false) }; provider.local.selectedModel = "milk-fixture"
-        let backend = PiBackend(runtime: runtime, providerConfiguration: provider); defer { backend.shutdown() }
+        let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime, providerConfiguration: provider); defer { backend.shutdown() }
         var events: [AgentEvent] = [], settled = 0, streamed = "", approvals: [AgentApproval] = [], changes: [AgentFileChange] = [], sessionFile: String?, directory: URL?, model: AgentModel?, levels: [String] = []
         var liveMessages: [AgentMessage] = [], liveActivities: [AgentActivity] = []
         var decision = "Deny", failures: [String] = []
@@ -167,7 +167,7 @@ final class PiIntegrationTests: XCTestCase {
         try await backend.shutdownAndWait()
         XCTAssertTrue(FileManager.default.fileExists(atPath: file), "Close preserves real Pi history")
 
-        let restored = PiBackend(runtime: runtime, providerConfiguration: provider); defer { restored.shutdown() }
+        let restored = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime, providerConfiguration: provider); defer { restored.shutdown() }
         var restoredMessages: [AgentMessage] = [], restoredActivities: [AgentActivity] = []
         restored.onEvent = {
             if case .history(let snapshot) = $0 { restoredMessages = snapshot.messages; restoredActivities = snapshot.activities }

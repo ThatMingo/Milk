@@ -14,6 +14,7 @@ import AppKit
     private(set) var renderer = PreviewWebRenderer()
     let devServers: DevServerService
     var authorize: ((PreviewConfiguration) async throws -> PreviewConfiguration)?
+    var launchAgent: ((PreviewConfiguration) async throws -> AgentManagedJob)?
     var assist: ((URL) async throws -> PreviewConfiguration)?
     var onActivity: ((String, String, AgentActivity.Status) -> Void)?
     var defaultDevice: PreviewDevice = .desktop
@@ -115,6 +116,7 @@ import AppKit
                 if config == nil {
                     guard let assist = self.assist else { throw AgentError.message("No Preview command found. Enter a running project URL or configure Pi to inspect this project.") }
                     config = try await assist(root)
+                    config?.agentSuggested=true // Assistance never becomes a trusted user command.
                 }
                 try self.check(token)
                 guard var config, WorkspaceFileService.isInside(config.directory, root: root, resolve: true), !config.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AgentError.message("Preview needs a command with a working directory inside this workspace.") }
@@ -127,7 +129,13 @@ import AppKit
                 else { hintWasFree = false }
                 try self.check(token)
                 attemptedLaunch = true
-                let owned = try self.devServers.launch(config, workspace: root)
+                let owned: ManagedPreviewServer
+                if config.agentSuggested == true {
+                    guard let launchAgent=self.launchAgent else { throw AgentError.message("Agent Preview executor is unavailable.") }
+                    let job=try await launchAgent(config)
+                    do { try self.check(token) } catch { await job.stop(); throw error }
+                    owned=self.devServers.adopt(job,configuration:config)
+                } else { owned=try self.devServers.launch(config,workspace:root) }
                 self.server = owned
                 self.state = .waiting; self.publishOutput(owned)
                 // Prefer log output, including an alternate port, over any Pi-suggested endpoint.
@@ -245,7 +253,8 @@ import AppKit
         saveMemories()
     }
     private func saveMemories() {
-        if persist, let data = try? JSONEncoder().encode(memories) { defaults.set(data, forKey: "Milk.preview.v1") }
+        let durable=memories.mapValues { memory in var value=memory; if value.configuration?.agentSuggested == true { value.configuration=nil }; return value }
+        if persist, let data = try? JSONEncoder().encode(durable) { defaults.set(data, forKey: "Milk.preview.v1") }
     }
     private func publishOutput(_ owned: ManagedPreviewServer, status: AgentActivity.Status? = nil) {
         onActivity?("preview-" + owned.id.uuidString, owned.startupCommand + "\nIn: " + owned.configuration.directory.path + "\n\n" + owned.stdout + (owned.stderr.isEmpty ? "" : "\n[stderr]\n" + owned.stderr), status ?? (owned.state == .running ? .running : .error))

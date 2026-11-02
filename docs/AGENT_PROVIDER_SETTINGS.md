@@ -101,6 +101,27 @@ default; changing provider is not changing session ownership.
 Milk sends no inference requests. Pi handles prompts, providers, context
 accounting and compaction. No compaction defaults or thresholds are changed.
 
+## Sandbox environment contract
+
+Phase 4 uses explicit environments for runtime, helper and sibling purposes. The
+selected profile and provider settings keys are resolved before filtering. Pi keeps
+its documented provider variables, configured auth files and user-profile API/header/
+MCP environment references. The Keychain-backed Milk Local credential is injected
+last for its exact profile/endpoint and never used as an ambient fallback. None mode
+continues to omit Authorization, including when stale native auth exists.
+
+Pi-owned children/extensions/MCP may inherit the configured inference key. Milk-owned
+executors and their descendants use separate private, key-free environments. Runtime
+and probe overrides are separate internal adapter inputs; custom runtime credentials
+do not propagate to version/compatibility helpers. No hosted OAuth flow is replaced
+or routed through a Milk broker. Main runtime configured-provider auth-file precedence
+and declared environment authentication are regression-tested with actual Pi.
+
+Sandbox ON Preview inspection currently uses an empty private profile with Local
+configuration; Existing-profile-only configured-provider models/auth are not copied
+there. That previously recorded seam remains outside current covered Preview behavior.
+Agent-started server execution remains blocked ON pending the host-effect phase.
+
 ## Capabilities and limits
 
 `PiModelCapabilities` stores optional values per exact model ID, separating server

@@ -98,7 +98,7 @@ final class PiParityTests: XCTestCase {
         }
         """
         try Data(source.utf8).write(to: extensions.appendingPathComponent("dialogs.ts"))
-        let backend = PiBackend(runtime: runtime, providerConfiguration: provider)
+        let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime, providerConfiguration: provider)
         addTeardownBlock { try await backend.shutdownAndWait() }
         var methods: [String] = [], dismissed: [String] = [], reply: JSONValue?, failures: [String] = []
         backend.onEvent = { event in
@@ -150,7 +150,7 @@ final class PiParityTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["MILK_PARITY_READY": ready ? "1" : "0"])
         var configuration = AgentConfiguration(); let provider = PiProviderConfiguration(); configuration.runtime = .external(executable)
-        return (root, PiBackend(runtime: runtime, providerConfiguration: provider), configuration)
+        return (root, PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime, providerConfiguration: provider), configuration)
     }
 
     @MainActor func testMissingIntegrationHandshakeFailsBeforeReadyOrHistory() async throws {

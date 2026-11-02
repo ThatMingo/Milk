@@ -37,6 +37,7 @@ struct PiExtensionRecord: Identifiable, Equatable {
     var runtimeSelection: @MainActor () -> PiRuntimeMode = { .bundled }
     var lifecycle: AgentLifecycleCoordinator?
     var installations: PiInstallationManager?
+    var sandboxSettings: SandboxSettingsStore?
     let runtime:PiRuntimeService
     private var workspace:URL?
     init(agentDirectory:URL? = nil,runtime:PiRuntimeService = PiRuntimeService()) {
@@ -277,17 +278,24 @@ struct PiExtensionRecord: Identifiable, Equatable {
         }, onCancel: { Task { @MainActor in owner.stop(lease) } })
     }
     private func runPackageCommand(_ command: String, source: String, owner: AgentLifecycleCoordinator) async throws {
-        let runtime=self.runtime, directory=agentDirectory
-        let location: PiLaunchContext
-        if let installations { location = try await installations.resolve(legacy: runtimeSelection(), owner: owner) }
-        else { location = try await PiLaunchResolver(runtime: runtime).resolve(runtimeSelection(), lifecycle: owner) }
-        try Task.checkCancellation()
-        var env = location.environment
-        env["PI_CODING_AGENT_DIR"] = directory.path; env["PI_OFFLINE"] = "1"
-        let (data, status) = try await PiUtilityProcess.execute(executable: location.executable,
-            arguments: [command, source, "--no-approve"], directory: FileManager.default.temporaryDirectory,
-            environment: env, timeout: 20, mergeErrors: true, purpose: .packageCommand, lifecycle: owner)
-        guard status == 0 else { throw AgentError.message("Pi package command failed: " + String(decoding: data.suffix(4000), as: UTF8.self)) }
+        guard ["install","remove"].contains(command), source.hasPrefix("/") else { throw AgentError.message("Only explicit local package install/remove is supported.") }
+        let authority=SandboxLaunchAuthority.capture(settings:sandboxSettings,profiles:installations?.sandboxProfiles ?? [])
+        try await SandboxLaunchAuthority.$current.withValue(authority) {
+            let runtime=self.runtime, directory=agentDirectory
+            let location: PiLaunchContext
+            if let installations { location=try await installations.resolve(legacy:runtimeSelection(),owner:owner) }
+            else { location=try await PiLaunchResolver(runtime:runtime).resolve(runtimeSelection(),lifecycle:owner) }
+            try Task.checkCancellation()
+            let work=FileManager.default.temporaryDirectory.appendingPathComponent("Milk-Package-"+UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at:work) }
+            let plan=try SandboxPurposePlan.make(purpose:.packageCommand,executable:location.executable,authority:authority,root:work,
+                sourceEnvironment:location.environment,explicitEnvironment:runtime.probeEnvironmentOverrides,support:location.supportPaths,
+                codeRoot:location.installation.ownership == .external ? nil : location.executable.deletingLastPathComponent(),
+                runtimeDependencies:PiRuntimeService.supportRoots(executable:location.executable),packageSource:URL(fileURLWithPath:source),target:.init(directory:directory,ownership:location.dataProfile.ownership),project:workspace)
+            let (data,status)=try await PiUtilityProcess.execute(executable:location.executable,arguments:[command,source,"--no-approve"],
+                timeout:20,mergeErrors:true,purpose:.packageCommand,lifecycle:owner,plan:plan)
+            guard status == 0 else { throw AgentError.message("Pi package command failed in its selected purpose boundary. " + String(decoding:data.suffix(4000),as:UTF8.self)) }
+        }
     }
 
     func reconnect(_ agent:AgentService) throws {

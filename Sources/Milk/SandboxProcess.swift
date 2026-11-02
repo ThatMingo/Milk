@@ -26,7 +26,10 @@ final class SandboxProcess: @unchecked Sendable {
         for fd in [output.fileHandleForReading.fileDescriptor, errors.fileHandleForReading.fileDescriptor] { _ = fcntl(fd, F_SETFL, O_NONBLOCK) }
         DispatchQueue.global().async { [self] in
             let leader = processIdentifier
-            _ = milk_terminal_wait_exit(leader) // WNOWAIT reserves identity even on ordinary completion.
+            guard milk_terminal_wait_exit(leader) == 0 else {
+                condition.lock(); cleanupError = errno; status = -255; done = true; pid = -1
+                condition.broadcast(); condition.unlock(); return // Never signal an identity we cannot retain.
+            } // WNOWAIT reserves identity even on ordinary completion.
             signalGroup(SIGTERM); usleep(100_000); signalGroup(SIGKILL)
             var raw: Int32 = 0
             condition.lock()
@@ -39,6 +42,9 @@ final class SandboxProcess: @unchecked Sendable {
         condition.lock(); defer { condition.unlock() }
         guard !done, pid > 1 else { return }
         if killpg(pid, signal) < 0, errno != ESRCH, errno != EPERM { cleanupError = errno }
+        // The directly owned child may have moved out of its original group.
+        // Its identity is still reserved until our exclusive wait/reap completes.
+        if kill(pid, signal) < 0, errno != ESRCH, errno != EPERM { cleanupError = errno }
         // Darwin may return EPERM for a zombie-only group; never use this as proof
         // of subtree death. The accepted detached-survivor limitation still applies.
     }

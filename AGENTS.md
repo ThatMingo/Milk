@@ -65,7 +65,7 @@ Security-sensitive changes must fail closed.
 - Do not introduce plaintext or weaker fallback storage when secure storage is unavailable.
 - Treat filesystem paths, symlinks, archives, runtime artifacts, extension packages, and external executables as untrusted inputs until validated.
 - Do not turn a trusted Milk bridge into a generic filesystem or command-execution escape for an agent.
-- Native Milk extensions execute in-process with Milk privileges. Extension capabilities are API contracts, not an OS sandbox.
+- Native Milk extension UI/user handlers are trusted in-process. Agent-callable extension tools run in separate Milk workers; never restore an in-process fallback. Native UI capability contracts alone are not an OS sandbox.
 - Existing Pi and user-owned data remain externally owned. Do not mutate or delete them as a side effect of managing Milk-owned runtime code.
 - Tests for credential or security code must use disposable/synthetic data unless an explicit live acceptance task says otherwise.
 

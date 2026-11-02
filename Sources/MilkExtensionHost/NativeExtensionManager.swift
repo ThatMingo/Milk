@@ -55,6 +55,7 @@ public struct NativeExtensionRecord: Codable, Identifiable, Equatable {
     public let root: URL
     public let registry: ExtensionContributionRegistry
     public let processes=ExtensionProcessHost()
+    public let agentWorkersChanged = PassthroughSubject<Void,Never>()
     public let inspector: NativePackageInspector
     public let catalogURL: URL
     public var focusSidebar: ((String) -> Void)?
@@ -335,21 +336,33 @@ public struct NativeExtensionRecord: Codable, Identifiable, Equatable {
         guard let command=registry.commands.first(where:{ $0.item.name == name }), contexts[command.owner]?.lease.active == true else { return false }
         try await command.item.perform(arguments); return true
     }
-    public func invokePiTool(id: String, arguments: Data, workspace: URL, session: Int) async throws -> String {
+    public struct AgentToolInvocation {
+        public let tool: OwnedPiTool
+        public let request: ExtensionWorkerRequest
+        public let fingerprint: String
+    }
+    /// Revalidate package bytes, registration, lease and workspace; no agent code executes here.
+    public func prepareAgentTool(id: String, arguments: Data, workspace: URL) async throws -> AgentToolInvocation {
         guard let tool=registry.tools.first(where:{ $0.id == id }), let context=contexts[tool.owner], context.lease.active,
-              workspaceURL == workspace else { throw NativeExtensionError.invalid("Native Pi contribution is inactive or belongs to a different workspace.") }
-        guard let authorize else { throw NativeExtensionError.invalid("Milk approval policy is unavailable.") }
-        // Always use Milk's policy too, including requests arriving over the bridge UI channel.
-        try await authorize(tool.owner,"Pi tool \(tool.piName)\n"+String(decoding:arguments,as:UTF8.self),workspace,session)
+              workspaceURL == workspace, arguments.count <= 1_048_576 else { throw NativeExtensionError.invalid("Native agent contribution is inactive or belongs to another workspace.") }
+        let saved=try record(tool.owner)
+        guard let worker=saved.manifest.agentWorkerClass else { throw NativeExtensionError.invalid("Agent tools require an API 2 worker entry point. No in-process fallback exists.") }
+        let inspection=try await verify(saved)
         try context.lease.check(.pi)
-        guard workspaceURL == workspace, registry.tools.contains(where:{ $0.id == id }) else { throw NativeExtensionError.invalid("Contribution changed during approval.") }
-        return try await tool.item.perform(arguments,.init(workspaceURL:workspace))
+        guard workspaceURL == workspace, registry.tools.contains(where:{ $0.id == id && $0.registration == tool.registration }) else { throw CancellationError() }
+        return .init(tool:tool,request:.init(packageURL:inspection.url,principalClass:worker,tool:tool.item.id,arguments:arguments,workspaceURL:workspace,storageURL:dataURL(tool.owner)),fingerprint:inspection.fingerprint)
+    }
+    public func agentToolIsLive(_ invocation: AgentToolInvocation) -> Bool {
+        contexts[invocation.tool.owner]?.lease.active == true && workspaceURL == invocation.request.workspaceURL &&
+        records.contains(where:{ $0.id == invocation.tool.owner && $0.current.fingerprint == invocation.fingerprint && $0.enabled }) &&
+        registry.tools.contains(where:{ $0.id == invocation.tool.id && $0.registration == invocation.tool.registration })
     }
     public func piPrompt(_ id: String, workspace: URL) throws -> String {
         guard workspaceURL == workspace, let prompt=registry.prompts[id] else { throw NativeExtensionError.invalid("Native prompt resource is unavailable.") }
         return prompt
     }
     private func publishCatalog() {
+        agentWorkersChanged.send()
         do { try prepare(); try registry.piCatalogData().write(to:catalogURL,options:.atomic) }
         catch { if diagnostics.last != error.localizedDescription { diagnostics.append(error.localizedDescription) } }
     }
