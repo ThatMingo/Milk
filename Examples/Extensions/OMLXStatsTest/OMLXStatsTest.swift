@@ -39,6 +39,8 @@ private struct Snapshot {
     var waiting: Int?
     var memory: Int64?
     var memoryMax: Int64?
+    var loaded: Int?
+    var available: Int?
 }
 
 @MainActor
@@ -46,7 +48,7 @@ private final class StatsModel: ObservableObject {
     let context: any ExtensionContext
     @Published var endpoint = "http://127.0.0.1:8000"
     @Published var token = ""
-    @Published var status = "Not checked"
+    @Published var status = "Checking"
     @Published var error = ""
     @Published var stats = Snapshot()
     @Published var refreshing = false
@@ -69,7 +71,7 @@ private final class StatsModel: ObservableObject {
     }
 
     func clearKey() {
-        do { try context.secrets?.write(nil, for: "api-key"); self.error = "API key removed" }
+        do { try context.secrets?.write(nil, for: "api-key"); self.error = "Inference key removed"; Task { await refresh() } }
         catch { self.error = error.localizedDescription }
     }
 
@@ -77,93 +79,109 @@ private final class StatsModel: ObservableObject {
         guard !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
+
+        // /health is intentionally unauthenticated. Never require an admin key.
+        let health: [String: Any]
         do {
-            let publicStatus = try await get("/api/status")
-            let loaded = publicStatus["loaded_models"] as? [String] ?? []
-            var current: String? = loaded.count == 1 ? loaded.first : nil
-
-            if let activity = try? await get("/admin/api/activity"),
-               let active = activity["active_models"] as? [String: Any],
-               let rows = active["models"] as? [[String: Any]] {
-                current = rows.first(where: { row in
-                    let generating = (row["generating"] as? [Any])?.isEmpty == false
-                    let prefilling = (row["prefilling"] as? [Any])?.isEmpty == false
-                    let activities = (row["activities"] as? [Any])?.isEmpty == false
-                    return generating || prefilling || activities
-                }).flatMap { ($0["id"] ?? $0["model_id"]) as? String } ?? current
-            }
-            if current == nil { current = loaded.first }
-
-            guard let current else {
-                stats = Snapshot()
-                status = "Connected"
-                self.error = ""
-                return
-            }
-
-            do {
-                let admin = try await get("/admin/api/stats", query: [
-                    URLQueryItem(name: "scope", value: "session"),
-                    URLQueryItem(name: "model", value: current)
-                ])
-                let active = admin["active_models"] as? [String: Any]
-                let rows = active?["models"] as? [[String: Any]] ?? []
-                let row = rows.first { (($0["id"] ?? $0["model_id"]) as? String) == current }
-                stats = Snapshot(
-                    model: current,
-                    generation: number(admin["avg_generation_tps"]),
-                    prefill: number(admin["avg_prefill_tps"]),
-                    requests: integer(admin["total_requests"]),
-                    prompt: integer(admin["total_prompt_tokens"]),
-                    completion: integer(admin["total_completion_tokens"]),
-                    cached: integer(admin["total_cached_tokens"]),
-                    cacheEfficiency: number(admin["cache_efficiency"]),
-                    active: integer(row?["active_requests"]) ?? integer(active?["total_active_requests"]),
-                    waiting: integer(row?["waiting_requests"]) ?? integer(active?["total_waiting_requests"]),
-                    memory: int64(active?["model_memory_used"]),
-                    memoryMax: int64(active?["model_memory_max"])
-                )
-                self.error = ""
-            } catch {
-                stats = Snapshot(
-                    model: current,
-                    generation: number(publicStatus["avg_generation_tps"]),
-                    prefill: number(publicStatus["avg_prefill_tps"]),
-                    requests: integer(publicStatus["total_requests"]),
-                    prompt: integer(publicStatus["total_prompt_tokens"]),
-                    completion: integer(publicStatus["total_completion_tokens"]),
-                    cached: integer(publicStatus["total_cached_tokens"]),
-                    cacheEfficiency: number(publicStatus["cache_efficiency"]),
-                    active: integer(publicStatus["active_requests"]),
-                    waiting: integer(publicStatus["waiting_requests"]),
-                    memory: int64(publicStatus["model_memory_used"]),
-                    memoryMax: int64(publicStatus["model_memory_max"])
-                )
-                self.error = "Admin stats unavailable. Add the main oMLX API key below for full per-model stats."
-            }
-            status = "Connected"
+            health = try await get("/health")
         } catch {
             status = "Offline"
             stats = Snapshot()
-            self.error = error.localizedDescription
+            self.error = "Cannot reach oMLX: " + error.localizedDescription
+            return
+        }
+
+        let pool = health["engine_pool"] as? [String: Any] ?? [:]
+        let defaultModel = health["default_model"] as? String
+        let fallbackModel = (defaultModel?.isEmpty == false) ? defaultModel! : "Not specified"
+        let fallback = Snapshot(
+            model: fallbackModel,
+            generation: nil, prefill: nil,
+            requests: nil, prompt: nil, completion: nil,
+            cached: nil, cacheEfficiency: nil,
+            active: nil, waiting: nil,
+            memory: int64(pool["current_model_memory"]),
+            memoryMax: int64(pool["final_ceiling"]),
+            loaded: integer(pool["loaded_count"]),
+            available: integer(pool["model_count"])
+        )
+
+        // /api/status is a read-only statusline endpoint. A normal inference
+        // sub-key is accepted; no /admin/api/* URL is ever requested.
+        do {
+            let data = try await get("/api/status")
+            let loaded = data["loaded_models"] as? [String] ?? []
+            let model = loaded.count == 1
+                ? loaded[0]
+                : (loaded.isEmpty ? fallbackModel : loaded.joined(separator: ", "))
+            stats = Snapshot(
+                model: model,
+                generation: number(data["avg_generation_tps"]),
+                prefill: number(data["avg_prefill_tps"]),
+                requests: integer(data["total_requests"]),
+                prompt: integer(data["total_prompt_tokens"]),
+                completion: integer(data["total_completion_tokens"]),
+                cached: integer(data["total_cached_tokens"]),
+                cacheEfficiency: number(data["cache_efficiency"]),
+                active: integer(data["active_requests"]),
+                waiting: integer(data["waiting_requests"]),
+                memory: int64(data["model_memory_used"]) ?? fallback.memory,
+                memoryMax: int64(data["model_memory_max"]) ?? fallback.memoryMax,
+                loaded: integer(data["models_loaded"]) ?? fallback.loaded,
+                available: integer(data["models_discovered"]) ?? fallback.available
+            )
+            status = "Live"
+            self.error = ""
+        } catch {
+            stats = fallback
+            status = (health["status"] as? String) == "loading" ? "Loading" : "Basic"
+            if error.localizedDescription.contains("401") {
+                let saved = (try? context.secrets?.read("api-key")) ?? ""
+                self.error = saved.isEmpty
+                    ? "Connected in basic mode. oMLX requires a standard inference key to show request, speed and cache statistics. An admin key is never needed."
+                    : "Connected in basic mode. The standard inference key was rejected (401). Check the key, or clear it to continue with keyless health monitoring."
+            } else {
+                self.error = "Connected in basic mode. Extended stats unavailable: " + error.localizedDescription
+            }
         }
     }
 
-    private func get(_ path: String, query: [URLQueryItem] = []) async throws -> [String: Any] {
-        guard let network = context.network else { throw StatsError.message("Network capability unavailable") }
-        guard var components = URLComponents(string: endpoint), components.host != nil else { throw StatsError.message("Invalid oMLX endpoint") }
-        components.path = path
-        components.queryItems = query.isEmpty ? nil : query
-        guard let url = components.url else { throw StatsError.message("Invalid oMLX URL") }
+    private func get(_ path: String) async throws -> [String: Any] {
+        guard let network = context.network else {
+            throw StatsError.message("Network capability unavailable")
+        }
+        let cleaned = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: cleaned),
+              let scheme = components.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              let host = components.host, !host.isEmpty else {
+            throw StatsError.message("Invalid oMLX endpoint")
+        }
+        guard let url = URL(string: path, relativeTo: URL(string: scheme + "://" + host + (components.port.map { ":" + String($0) } ?? "")))?.absoluteURL else {
+            throw StatsError.message("Invalid oMLX URL")
+        }
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let key = try context.secrets?.read("api-key"), !key.isEmpty {
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        if path == "/api/status",
+           let key = try context.secrets?.read("api-key"), !key.isEmpty {
+            // Refuse to send even a normal inference key in cleartext to a
+            // non-loopback server. Remote endpoints require HTTPS.
+            let local = host == "localhost" || host == "127.0.0.1" || host == "::1"
+            guard scheme == "https" || local else {
+                throw StatsError.message("Use HTTPS for remote authenticated connections")
+            }
+            request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         }
         let (data, response) = try await network.data(for: request)
-        guard (200..<300).contains(response.statusCode) else { throw StatsError.message("HTTP \(response.statusCode)") }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw StatsError.message("Invalid JSON") }
+        let accepted = (200..<300).contains(response.statusCode)
+            || (path == "/health" && response.statusCode == 503)
+        guard accepted else {
+            throw StatsError.message("HTTP " + String(response.statusCode))
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw StatsError.message("Invalid JSON")
+        }
         return json
     }
 }
@@ -193,7 +211,7 @@ private struct StatsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Current model").font(.caption).foregroundStyle(ExtensionTheme.secondaryText)
+                    Text("Loaded / default model").font(.caption).foregroundStyle(ExtensionTheme.secondaryText)
                     Text(model.stats.model).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                 }
                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -204,6 +222,8 @@ private struct StatsView: View {
                     tile("Prefill", speed(model.stats.prefill), "tok/s")
                     tile("Requests", count(model.stats.requests), nil)
                     tile("Cache", percent(model.stats.cacheEfficiency), nil)
+                    tile("Loaded models", count(model.stats.loaded), nil)
+                    tile("Available models", count(model.stats.available), nil)
                 }
 
                 rows([
@@ -216,15 +236,17 @@ private struct StatsView: View {
                     ("Memory ceiling", bytes(model.stats.memoryMax))
                 ])
 
-                DisclosureGroup("Connection") {
+                DisclosureGroup("Connection · optional") {
                     VStack(spacing: 8) {
                         TextField("http://127.0.0.1:8000", text: $model.endpoint).textFieldStyle(.roundedBorder)
-                        SecureField("Main oMLX API key", text: $model.token).textFieldStyle(.roundedBorder)
+                        SecureField("Optional inference key (never admin)", text: $model.token).textFieldStyle(.roundedBorder)
                         HStack {
                             Button("Save") { model.save() }.buttonStyle(ExtensionButtonStyle())
-                            Button("Clear key") { model.clearKey() }.buttonStyle(ExtensionButtonStyle())
+                            Button("Clear inference key") { model.clearKey() }.buttonStyle(ExtensionButtonStyle())
                             Button("Refresh") { Task { await model.refresh() } }.buttonStyle(ExtensionButtonStyle()).disabled(model.refreshing)
                         }
+                        Text("Basic health and model memory work without a key. For throughput, requests and cache statistics, oMLX may require your normal inference key. Never enter an admin key.")
+                            .font(.caption).foregroundStyle(ExtensionTheme.secondaryText)
                     }.padding(.top, 8)
                 }
 
