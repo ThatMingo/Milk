@@ -54,7 +54,7 @@ private final class StatsModel: ObservableObject {
     init(context: any ExtensionContext) {
         self.context = context
         if let data = try? context.storage.read("endpoint.txt"),
-           let data, let saved = String(data: data, encoding: .utf8), !saved.isEmpty {
+           let saved = String(data: data, encoding: .utf8), !saved.isEmpty {
             endpoint = saved
         }
     }
@@ -63,14 +63,14 @@ private final class StatsModel: ObservableObject {
         do {
             try context.storage.write(Data(endpoint.utf8), to: "endpoint.txt")
             if !token.isEmpty { try context.secrets?.write(token, for: "api-key"); token = "" }
-            error = "Saved"
+            self.error = "Saved"
             Task { await refresh() }
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     func clearKey() {
-        do { try context.secrets?.write(nil, for: "api-key"); error = "API key removed" }
-        catch { error = error.localizedDescription }
+        do { try context.secrets?.write(nil, for: "api-key"); self.error = "API key removed" }
+        catch { self.error = error.localizedDescription }
     }
 
     func refresh() async {
@@ -97,7 +97,7 @@ private final class StatsModel: ObservableObject {
             guard let current else {
                 stats = Snapshot()
                 status = "Connected"
-                error = ""
+                self.error = ""
                 return
             }
 
@@ -123,7 +123,7 @@ private final class StatsModel: ObservableObject {
                     memory: int64(active?["model_memory_used"]),
                     memoryMax: int64(active?["model_memory_max"])
                 )
-                error = ""
+                self.error = ""
             } catch {
                 stats = Snapshot(
                     model: current,
@@ -139,7 +139,7 @@ private final class StatsModel: ObservableObject {
                     memory: int64(publicStatus["model_memory_used"]),
                     memoryMax: int64(publicStatus["model_memory_max"])
                 )
-                error = "Admin stats unavailable. Add the main oMLX API key below for full per-model stats."
+                self.error = "Admin stats unavailable. Add the main oMLX API key below for full per-model stats."
             }
             status = "Connected"
         } catch {
