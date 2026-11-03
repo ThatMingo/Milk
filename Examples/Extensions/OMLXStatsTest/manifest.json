@@ -1,12 +1,15 @@
 {
   "id": "dev.thatmingo.milk.omlx-stats-test",
   "name": "oMLX Stats",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "milkApi": "1",
   "minimumMilkVersion": "0.7.0",
   "principalClass": "OMLXStatsTest.OMLXStatsTest",
   "executable": "OMLXStatsTest",
-  "capabilities": ["network", "keychain"],
+  "capabilities": [
+    "network",
+    "keychain"
+  ],
   "author": "ThatMingo",
-  "description": "Live oMLX telemetry for the currently loaded model in a Milk sidebar tab."
+  "description": "Read-only oMLX monitor using public health and standard inference status endpoints. No admin API."
 }
