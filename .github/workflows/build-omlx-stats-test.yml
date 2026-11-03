@@ -1,0 +1,29 @@
+name: Build oMLX Stats test extension
+
+on:
+  push:
+    branches:
+      - build/omlx-stats-extension-2
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build MilkExtensionKit
+        run: swift build --product MilkExtensionKit -c debug
+      - name: Build extension
+        run: |
+          chmod +x Examples/Extensions/OMLXStatsTest/build.sh
+          ./Examples/Extensions/OMLXStatsTest/build.sh
+      - name: Package installable extension
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "Examples/Extensions/OMLXStatsTest/build/oMLX Stats.milkext" \
+            "oMLX-Stats.milkext.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omlx-stats-milkext
+          path: oMLX-Stats.milkext.zip
+          if-no-files-found: error
