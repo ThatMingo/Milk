@@ -16,8 +16,8 @@ fi
   print -u2 "MilkExtensionKit SDK missing. Set MILK_EXTENSION_SDK to the ExtensionSDK directory."
   exit 1
 }
-modules="$sdk"
-[[ -d "$sdk/Modules" ]] && modules="$sdk/Modules"
+sdkModules="$sdk"
+[[ -d "$sdk/Modules" ]] && sdkModules="$sdk/Modules"
 
 bundle="$here/dist/MilkCalculator.milkext"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
@@ -38,7 +38,7 @@ PY
 
 xcrun swiftc -swift-version 5 -target arm64-apple-macosx26.0 \
   -parse-as-library -emit-library -Xlinker -bundle \
-  -module-name MilkCalculator -I "$modules" -L "$sdk" \
+  -module-name MilkCalculator -I "$sdkModules" -L "$sdk" \
   -lMilkExtensionKit "$here/Sources/MilkCalculator.swift" \
   -o "$bundle/Contents/MacOS/MilkCalculator"
 
