@@ -1,0 +1,71 @@
+name: Build Calculator milkext
+
+on:
+  push:
+    branches:
+      - feature/calculator-extension
+    paths:
+      - 'Examples/Extensions/MilkCalculator/**'
+      - '.github/workflows/build-calculator-extension.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Milk
+        uses: actions/checkout@v4
+
+      - name: Verify Apple Silicon Xcode environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          xcodebuild -version
+          xcrun swift --version
+
+      - name: Download matching Milk 0.7 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --silent --show-error \
+            -o "$RUNNER_TEMP/Milk-0.7.0.zip" \
+            'https://github.com/ThatMingo/Milk/releases/download/v0.7.0/Milk-0.7.0-macOS-arm64.zip'
+          mkdir -p "$RUNNER_TEMP/Milk-0.7.0"
+          ditto -x -k "$RUNNER_TEMP/Milk-0.7.0.zip" "$RUNNER_TEMP/Milk-0.7.0"
+          sdk="$(find "$RUNNER_TEMP/Milk-0.7.0" -type d -path '*/Milk.app/Contents/Resources/ExtensionSDK' -print -quit)"
+          test -n "$sdk"
+          test -f "$sdk/libMilkExtensionKit.dylib"
+          printf 'MILK_EXTENSION_SDK=%s\n' "$sdk" >> "$GITHUB_ENV"
+
+      - name: Compile and validate native extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          zsh Examples/Extensions/MilkCalculator/build.sh
+          binary='Examples/Extensions/MilkCalculator/dist/MilkCalculator.milkext/Contents/MacOS/MilkCalculator'
+          file "$binary"
+          test "$(xcrun lipo -archs "$binary")" = "arm64"
+          xcrun otool -hv "$binary" | grep BUNDLE
+          codesign --verify --verbose=2 'Examples/Extensions/MilkCalculator/dist/MilkCalculator.milkext'
+
+      - name: Package installable milkext bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd Examples/Extensions/MilkCalculator/dist
+          ditto -c -k --keepParent MilkCalculator.milkext MilkCalculator.milkext.zip
+          unzip -l MilkCalculator.milkext.zip | grep 'MilkCalculator.milkext/Contents/MacOS/MilkCalculator'
+
+      - name: Upload Calculator.milkext
+        uses: actions/upload-artifact@v4
+        with:
+          name: MilkCalculator-1.0.0-macOS-arm64
+          path: Examples/Extensions/MilkCalculator/dist/MilkCalculator.milkext.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
