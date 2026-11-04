@@ -1,0 +1,12 @@
+{
+  "id": "dev.thatmingo.milk-calculator",
+  "name": "Calculator",
+  "version": "1.0.0",
+  "milkApi": "1",
+  "minimumMilkVersion": "0.7.0",
+  "principalClass": "MilkCalculator.MilkCalculator",
+  "executable": "MilkCalculator",
+  "capabilities": [],
+  "author": "Milk",
+  "description": "A native calculator workspace screen with keyboard support, arithmetic precedence, and calculation history."
+}
