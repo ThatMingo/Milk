@@ -87,7 +87,7 @@ final class PiProviderConsistencyTests: XCTestCase {
         try FileManager.default.createDirectory(at: notices, withIntermediateDirectories: true)
         try Data("Disposable fixture notice".utf8).write(to: notices.appendingPathComponent("LICENSE"))
         let manager = PiInstallationManager(store: .init(root: root.appendingPathComponent("Milk/Agents/pi")), lifecycle: .init(), runtime: runtime,
-            catalog: .init(releases: [release]), notices: notices, download: { _, destination in try tar.write(to: destination) })
+            catalog: .init(releases: [release]), notices: notices, discovery: PiReleaseDiscovery(fetch: { _ in Data("[]".utf8) }), download: { _, destination in try tar.write(to: destination) })
         try manager.migrateLegacySelection(.bundled)
         let managedID = try await manager.install()
         XCTAssertEqual(AgentManagerModel(manager: manager).selectedRecord?.ownership, .milkManaged)

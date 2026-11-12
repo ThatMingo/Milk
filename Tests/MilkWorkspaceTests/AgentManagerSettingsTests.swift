@@ -25,6 +25,7 @@ import CryptoKit
         let box = Phase6ProbeBox()
         manager = PiInstallationManager(store: .init(root: root.appendingPathComponent("Milk/Agents/pi")), lifecycle: .init(),
             runtime: .init(resources: root.appendingPathComponent("resources")), catalog: .init(releases: [release]), notices: notice,
+            discovery: PiReleaseDiscovery(fetch: { _ in Data("[]".utf8) }),
             download: { _, target in try (box.badDownload ? Data("bad".utf8) : archive).write(to: target) },
             probe: { _, _, _ in box.probes += 1; return box.badProbe ? PiCompatibilityPolicy.result(.unsupported, version: "1.3.0", detail: "Unsupported fixture version") : PiCompatibilityPolicy.verified(version: "1.4.0") })
         self.box = box
@@ -87,7 +88,7 @@ final class AgentManagerSettingsTests: XCTestCase {
         let model = AgentManagerModel(manager:fixture.manager)
         XCTAssertEqual(fixture.probes,0);XCTAssertEqual(model.external?.installation.executable,executable)
         XCTAssertTrue(model.needsVerification);XCTAssertThrowsError(try fixture.manager.selectedInstallation())
-        XCTAssertEqual(Set(model.actions),[.verify,.useExisting,.forget])
+        XCTAssertEqual(Set(model.actions),[.check,.verify,.useExisting,.forget])
         await model.perform(.verify)
         XCTAssertFalse(model.needsVerification);XCTAssertEqual(fixture.probes,1)
         XCTAssertEqual(try fixture.manager.selectedInstallation()?.executable,executable)
@@ -104,7 +105,7 @@ final class AgentManagerSettingsTests: XCTestCase {
     @MainActor func testManagedActionsUseTransactionsAndStagedSelectionTracksRunningRevision() async throws {
         let fixture = try Phase6Fixture(self);try fixture.manager.migrateLegacySelection(.bundled)
         let model = AgentManagerModel(manager:fixture.manager)
-        XCTAssertEqual(model.actions,[.install,.useExisting])
+        XCTAssertEqual(model.actions,[.install,.check,.useExisting])
         await model.perform(.install)
         let first = try XCTUnwrap(model.managed)
         XCTAssertEqual(model.status,"Managed by Milk");XCTAssertFalse(model.actions.contains(.update));XCTAssertFalse(model.canRollback)

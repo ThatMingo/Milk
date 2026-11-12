@@ -13,6 +13,11 @@ Start with the README for an overview and Developer setup to build from source.
   accepted limitations, measured ordinary-Keychain rebuild/recovery and optional distribution coverage.
 - [Runtime architecture](../RUNTIME.md): compiled adapter, installation selection,
   lifecycle, sessions and code/data ownership.
+- [Pi runtime updates](PI_RUNTIME_UPDATES.md): upstream release discovery, release
+  integrity and trust rules, staged automatic updates, rollback and offline
+  behaviour.
+- [Pi runtime auto-update ExecPlan](exec-plans/active/PI_RUNTIME_AUTO_UPDATE.md):
+  active implementation plan, invariants and validation evidence.
 - [Provider/profile final acceptance](PROVIDER_FINAL_ACCEPTANCE.md): final clean
   build, full regression, native acceptance and merge-gate evidence.
 - [Provider/profile Phase 3](PROVIDER_PROFILE_PHASE_3.md): focused real-Pi

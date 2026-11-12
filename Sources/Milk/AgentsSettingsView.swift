@@ -26,11 +26,22 @@ struct AgentsSettingsView: View {
                     SettingsNote(text: "Pi \(pending.release.version) is verified and staged. It will activate when owned Pi work has finished, or when you choose Activate Update.")
                 }
                 if let health = model.health { SettingsNote(text: health.detail) }
+                if let release = model.latestAvailableRelease, release.version != model.selectedVersion {
+                    SettingsRow(title: "Latest eligible release", subtitle: "Pi \(release.version) — \(release.provenance)", subtitleLines: 2) {
+                        Text(model.updateVersion != nil ? "Update available" : "Newer than selected").font(.system(size:11.5))
+                    }
+                }
+                if let rejected = model.rejectedRelease {
+                    SettingsNote(text: "Pi \(rejected.version) was rejected on this machine: \(rejected.reason). It will be retried only if that release changes.")
+                }
+                if let checked = model.manager.lastReleaseCheck {
+                    SettingsNote(text: "Upstream release check: \(checked.formatted(date: .abbreviated, time: .shortened))" + (model.manager.releaseCheckProblem.map { " · \($0)" } ?? ""))
+                }
                 if let issue = model.manager.store.loadProblem { SettingsNote(text: issue) }
                 if model.operationFailed, let operation = model.state.operation { SettingsNote(text: operation.detail) }
                 if model.managed != nil && (model.operationFailed || model.needsVerification) { SettingsNote(text: "Repair is available for Milk-managed runtime code.") }
                 if model.managed != nil {
-                    SettingsRow(title: "Auto Update", subtitle: "Approved Pi updates only. Active sessions keep their current runtime.") {
+                    SettingsRow(title: "Auto Update", subtitle: "Discover new stable Pi releases from the official upstream repository. Every release is integrity- and compatibility-verified before installation, and only when Pi work is quiescent.") {
                         Toggle("Auto Update", isOn: Binding(get: { model.state.autoUpdate }, set: { enabled in Task { await model.setAutoUpdate(enabled) } })).labelsHidden()
                     }
                 }
@@ -71,7 +82,7 @@ struct AgentsSettingsView: View {
                     }
                 }
             }
-        }.task { await model.checkAutomaticUpdate() }
+        }.task { await model.refreshReleases() }
     }
     @ViewBuilder private var actionButtons: some View {
         ForEach(model.actions) { action in

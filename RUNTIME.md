@@ -147,8 +147,12 @@ references are retained and require verification. Neither migration installs cod
 or moves ordinary Pi user data. Fixture-only legacy paths in tests are not a
 production fallback.
 
-The compiled catalog and compatibility policy currently approve **Pi 1.4.0 on
-Darwin arm64**. A version response alone does not establish compatibility.
+The compatibility policy has an adapter baseline of **Pi 1.4.0 on Darwin arm64**.
+There is no compiled list of approved Pi versions: eligible stable releases are
+discovered from the official `earendil-works/pi` repository over HTTPS, verified
+against the release's own published SHA-256 digests, and then probed. See
+[Pi runtime updates](docs/PI_RUNTIME_UPDATES.md).
+A version response alone does not establish compatibility.
 `PiCompatibilityProbe` starts a candidate with temporary agent storage/workspace,
 no saved session, and discovery of user extensions/skills/prompts/MCP disabled.
 It checks required native RPC reply shapes and the Milk integration handshake,

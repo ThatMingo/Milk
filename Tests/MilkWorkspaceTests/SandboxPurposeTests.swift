@@ -179,7 +179,7 @@ extension SandboxPurposeTests {
             artifacts:[.init(url:URL(string:"https://fixture.invalid/candidate.tar")!,sha256:try PiInstallationFiles.digest(archive),binarySuffix:nil,destination:"pi")],
             files:["pi":try PiInstallationFiles.digest(executable)],executables:["pi"],notices:["LICENSE"],provenance:"Disposable compiled native fixture; no network")
         let runtime=PiRuntimeService(resources:project.appendingPathComponent("Runtime"),environmentOverrides:["MILK_PI_LOCAL_KEY":"synthetic","OPENAI_API_KEY":"synthetic"])
-        let manager=PiInstallationManager(store:.init(root:base.appendingPathComponent("managed")),lifecycle:.init(),runtime:runtime,catalog:.init(releases:[release]),notices:notices,sandboxSettings:a.settings,
+        let manager=PiInstallationManager(store:.init(root:base.appendingPathComponent("managed")),lifecycle:.init(),runtime:runtime,catalog:.init(releases:[release]),notices:notices,sandboxSettings:a.settings,discovery:PiReleaseDiscovery(fetch:{ _ in Data("[]".utf8)}),
             download:{ _,target in try FileManager.default.copyItem(at:archive,to:target) })
         let id=try await manager.install()
         XCTAssertEqual(manager.store.state.selected,id)

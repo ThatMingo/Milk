@@ -93,6 +93,9 @@ import MilkExtensionHost
         installations.prepareForShutdown = { [weak agent] in try agent?.prepareForInstallationChange() }
         installations.sessionRuntimeVersions = { [weak agent] in Set(agent?.sessions.filter { $0.agentID == .pi }.compactMap { $0.metadata.lastRuntimeVersion } ?? []) }
         installations.onSelectionChanged = { [weak agent, weak extensions] in agent?.objectWillChange.send(); extensions?.refresh(workspace: nil) }
+        // Upstream release discovery on launch and periodically. Automatic staging
+        // only happens when Auto Update is on and Pi runtime work is quiescent.
+        if persist { installations.scheduleReleaseChecks() }
         extensions.sandboxSettings=settings.sandbox
         extensions.lifecycle = agent.lifecycle
         extensions.installations = installations

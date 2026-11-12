@@ -26,6 +26,12 @@ struct AgentInstallationOperation: Codable, Equatable {
     var detail: String
     var updatedAt = Date()
 }
+struct PiRejectedRelease: Codable, Equatable {
+    let version: String
+    let archiveSHA256: String
+    let reason: String
+    let rejectedAt: Date
+}
 struct PiInstallationState: Codable, Equatable {
     var schemaVersion = 1
     var managed: [ManagedPiVersion] = []
@@ -37,6 +43,15 @@ struct PiInstallationState: Codable, Equatable {
     var useLegacyRuntime = true
     var autoUpdate = false
     var operation: AgentInstallationOperation?
+    /// Upstream releases this machine already examined and rejected. A rejected
+    /// candidate stays out of automatic staging until its release metadata changes.
+    var rejected: [PiRejectedRelease]? = nil
+    /// Timestamp of the last *successful* upstream release read. A failed read is
+    /// never recorded as a completed check, so it does not block retries.
+    var lastReleaseCheck: Date? = nil
+    /// Discovered upstream release metadata from the last successful check. Stored so a
+    /// restarted Milk can offer/validate known releases without re-reading the network.
+    var discoveredReleases: [PiCatalogRelease]? = nil
     var removals: [ManagedPiVersion] = []
 }
 

@@ -1,23 +1,51 @@
 import Foundation
 
 /// The single app-side Pi policy. Packaging pins remain separate build inputs.
+///
+/// Two different questions are deliberately kept apart:
+///   * eligibility — may this version be built and inspected at all?
+///   * verification — has this exact revision completed the isolated Milk RPC
+///     handshake on this machine?
+/// A newly discovered stable upstream release is eligible for the isolated
+/// compatibility probe before anyone approves it. Normal user sessions still
+/// require successful verification.
 enum PiCompatibilityPolicy {
     static let adapterVersion = "1"
-    static let supportedVersions: Set<String> = ["1.4.0"]
+    /// The adapter baseline. Releases older than this are never eligible.
+    static let minimumEligibleVersion = PiSemanticVersion(major: 1, minor: 4, patch: 0, prerelease: nil)
+    /// Revisions Milk ships metadata for, used as the compatibility floor and by
+    /// fixture/bundled paths. Not an approval list for future releases.
+    static let baselineVersions: Set<String> = ["1.4.0"]
+
     static func result(_ state: AgentCompatibilityState, version: String?, detail: String,
                        evidence: AgentCompatibilityResult.Evidence = .versionOnly) -> AgentCompatibilityResult {
         .init(state: state, version: version, adapterVersion: adapterVersion, evidence: evidence, detail: detail)
     }
-    static func evaluate(version: String) -> AgentCompatibilityResult {
-        if supportedVersions.contains(version) { return result(.supported, version: version, detail: "Pi \(version): version supported; RPC integration not yet verified.") }
-        guard version.range(of: #"^\d+\.\d+\.\d+([+-].+)?$"#, options: .regularExpression) != nil else {
+    /// `verified` is the set of versions whose probe handshake succeeded on this
+    /// machine (held in the installation store), not a compiled allow-list.
+    static func evaluate(version: String, verified: Set<String> = []) -> AgentCompatibilityResult {
+        guard let parsed = PiSemanticVersion.parse(version) else {
             return result(.invalidRuntime, version: version, detail: "Pi returned an invalid version: \(version).")
         }
-        if version.compare("1.4.0", options: .numeric) == .orderedAscending {
-            return result(.unsupported, version: version, detail: "Pi \(version) is unsupported. This adapter supports \(supportedVersions.sorted().joined(separator: ", ")).")
+        if parsed < minimumEligibleVersion {
+            return result(.unsupported, version: parsed.text, detail: "Pi \(parsed.text) is older than the Pi \(minimumEligibleVersion.text) baseline this adapter supports.")
         }
-        return result(.untested, version: version, detail: "Pi \(version) is untested with this adapter. This adapter supports \(supportedVersions.sorted().joined(separator: ", ")).")
+        if baselineVersions.contains(parsed.text) {
+            return result(.supported, version: parsed.text, detail: "Pi \(parsed.text): adapter baseline; RPC integration not yet verified.")
+        }
+        if verified.contains(parsed.text) {
+            return result(.supported, version: parsed.text, detail: "Pi \(parsed.text) passed the isolated Milk RPC compatibility probe on this machine.",
+                          evidence: .integrationHandshake)
+        }
+        let kind = parsed.isStable ? "stable" : "pre-release"
+        return result(.untested, version: parsed.text, detail: "Pi \(kind) \(parsed.text) has not been verified with this adapter yet. Run the compatibility check before using it for sessions.")
     }
+    /// Gate for the isolated compatibility probe: structurally eligible versions
+    /// may be inspected without prior approval.
+    static func requireProbeEligible(_ value: AgentCompatibilityResult) throws {
+        guard value.state == .supported || value.state == .untested else { throw AgentCompatibilityError(result: value) }
+    }
+    /// Gate for ordinary session launch: only verified runtimes may run user work.
     static func requireSupportedVersion(_ value: AgentCompatibilityResult) throws {
         guard value.state == .supported else { throw AgentCompatibilityError(result: value) }
     }

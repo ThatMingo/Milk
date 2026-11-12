@@ -67,7 +67,7 @@ final class PiManagedInstallationTests: XCTestCase {
         let box = InstallFixture(); box.downloadData = archive
         let runtime = PiRuntimeService(resources: project.appendingPathComponent("Runtime"), environmentOverrides: ["PI_CODING_AGENT_DIR": root.appendingPathComponent("ordinary Pi data").path])
         let manager = PiInstallationManager(store: .init(root: root.appendingPathComponent("Agents/pi")), lifecycle: .init(), runtime: runtime,
-            catalog: .init(releases: [release]), notices: notices, download: { _, destination in
+            catalog: .init(releases: [release]), notices: notices, discovery: PiReleaseDiscovery(fetch: { _ in Data("[]".utf8) }), download: { _, destination in
                 box.downloading = true
                 await box.downloadGate?.wait()
                 try Task.checkCancellation()

@@ -36,7 +36,9 @@ agent and model provider.
 **Milk ships with no coding agent bundled.** Its agent-management architecture
 supports Milk-managed Pi installations and explicitly selected existing Pi
 installations. Pi uses native RPC through Milk's compiled `PiAdapter`; upstream
-Pi is not patched. The current adapter supports **Pi 1.4.0**.
+Pi is not patched. The adapter baseline is **Pi 1.4.0**; newer stable upstream
+releases are discovered, verified and installed automatically. See
+[Pi runtime updates](docs/PI_RUNTIME_UPDATES.md).
 
 Managed executable revisions live outside Milk.app. Existing installations remain
 externally owned and use the existing Pi setup. Installing Pi uses a separate

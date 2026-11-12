@@ -29,10 +29,10 @@ struct PiLaunchResolver {
                          ownership: .external, source: .userSelected, executable: url)
         }
     }
-    @MainActor func resolve(_ mode: PiRuntimeMode, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil) async throws -> PiLaunchContext {
-        try await resolve(installation(for: mode), lifecycle: lifecycle, probeDirectory: probeDirectory)
+    @MainActor func resolve(_ mode: PiRuntimeMode, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil, verified: Set<String> = []) async throws -> PiLaunchContext {
+        try await resolve(installation(for: mode), lifecycle: lifecycle, probeDirectory: probeDirectory, verified: verified)
     }
-    @MainActor func resolve(_ installation: AgentInstallationRecord, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil, profile: AgentDataProfile? = nil) async throws -> PiLaunchContext {
+    @MainActor func resolve(_ installation: AgentInstallationRecord, lifecycle: AgentLifecycleCoordinator?, probeDirectory: URL? = nil, profile: AgentDataProfile? = nil, verified: Set<String> = []) async throws -> PiLaunchContext {
         var version: String?
         do {
             if installation.ownership == .milkManaged, probeDirectory == nil, profile?.ownership != .milkManaged { throw AgentError.message("Managed Pi requires its Milk-owned profile.") }
@@ -78,8 +78,11 @@ struct PiLaunchResolver {
             if let expected = location.manifest?.version ?? installation.expectedVersion, expected != detected {
                 throw AgentError.message("Pi version does not match its pinned runtime metadata.")
             }
-            let compatibility = PiCompatibilityPolicy.evaluate(version: detected)
-            try PiCompatibilityPolicy.requireSupportedVersion(compatibility)
+            // The isolated probe may inspect an eligible but not yet approved version.
+            // Ordinary session launch never does: it needs a verified revision.
+            let compatibility = PiCompatibilityPolicy.evaluate(version: detected, verified: verified)
+            if probeDirectory != nil { try PiCompatibilityPolicy.requireProbeEligible(compatibility) }
+            else { try PiCompatibilityPolicy.requireSupportedVersion(compatibility) }
             if let probeDirectory {
                 environment = PiEnvironment.probe(source:environment,explicit:runtime.probeEnvironmentOverrides,work:probeDirectory,support:support,toolchain:selectedToolchain)
                 environment["PI_CODING_AGENT_DIR"] = selectedProfile.directory.path

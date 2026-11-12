@@ -111,8 +111,10 @@ To recheck existing fixtures without downloading, run
 `python3 scripts/verify-runtime.py`.
 
 These ignored fixtures are test inputs. They are not bundled with Milk.app and
-are not selected automatically by the production app. Settings → Agents uses the
-compiled approved catalog and stores managed code outside the checkout.
+are not selected automatically by the production app. Settings → Agents discovers
+eligible stable releases from the official upstream repository
+([Pi runtime updates](PI_RUNTIME_UPDATES.md)) and stores managed code outside
+the checkout.
 Downloads/checksums do not resolve the runtime provenance and distribution review
 recorded in [final acceptance](AGENT_PHASE_FINAL_ACCEPTANCE.md) and the
 [source-publication audit](PRE_GITHUB_AUDIT.md).

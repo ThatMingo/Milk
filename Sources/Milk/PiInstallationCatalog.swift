@@ -9,47 +9,89 @@ struct PiArtifact: Codable, Equatable {
     let binarySuffix: String?
     let destination: String
 }
+
+/// One runtime revision Milk is willing to build, with everything needed to
+/// verify it without a network round trip.
 struct PiCatalogRelease: Codable, Equatable {
     let version: String
     let platform: String
     let architecture: String
     let source: URL
     let artifacts: [PiArtifact]
+    /// Pinned digests for `requiredPaths`. Empty for a freshly discovered
+    /// upstream candidate; pinned from the verified inventory during staging.
     let files: [String: String]
     let executables: [String]
     let notices: [String]
     let provenance: String
+    /// Paths the extracted runtime must contain. Defaults to the pinned files.
+    var requiredPaths: [String]?
+    var origin: PiReleaseOrigin?
+
+    var paths: [String] { requiredPaths ?? Array(files.keys) }
+
+    /// Self-consistency of metadata already held locally. This is deliberately
+    /// network-free: an offline machine can still launch a verified revision.
+    func validate() throws {
+        guard let version = PiSemanticVersion.parse(self.version), version.isStable else {
+            throw AgentError.message("Runtime release metadata has an invalid version: \(self.version).")
+        }
+        guard version >= PiCompatibilityPolicy.minimumEligibleVersion else {
+            throw AgentError.message("Runtime release \(self.version) is older than the Pi baseline this adapter supports.")
+        }
+        guard platform == "darwin", architecture == PiInstallationCatalog.architecture else {
+            throw AgentError.message("Runtime release metadata is not for this platform or architecture.")
+        }
+        guard !artifacts.isEmpty, artifacts.allSatisfy({ PiInstallationFiles.isDigest($0.sha256) && $0.url.scheme == "https" && PiInstallationFiles.safePath($0.destination) }),
+              executables.allSatisfy(PiInstallationFiles.safePath), !executables.isEmpty,
+              notices.allSatisfy(PiInstallationFiles.safePath), !notices.isEmpty,
+              paths.allSatisfy(PiInstallationFiles.safePath), paths.contains("pi"),
+              files.keys.allSatisfy(PiInstallationFiles.safePath), files.values.allSatisfy(PiInstallationFiles.isDigest),
+              // A discovered candidate has no pinned file digests yet; they are pinned
+              // from the verified inventory during staging. Once pinned, the launcher
+              // executable must be one of the pinned files.
+              (files.isEmpty || files["pi"] != nil) else {
+            throw AgentError.message("Runtime release metadata is missing, invalid, or unusable for this platform/architecture.")
+        }
+        for path in executables where !paths.contains(path) { throw AgentError.message("Runtime release metadata does not require its executable \(path).") }
+        if let origin {
+            guard origin.isValid() else { throw AgentError.message("Runtime release provenance metadata is invalid.") }
+            guard origin.assetName == PiUpstreamRelease.archiveAsset else { throw AgentError.message("Runtime release provenance names an asset for another platform/architecture.") }
+            guard artifacts.contains(where: { $0.url.path.hasSuffix("/" + origin.assetName) && $0.sha256 == origin.assetSHA256 }) else {
+                throw AgentError.message("Runtime release provenance does not match its artifact pins.")
+            }
+        }
+    }
+
+    /// Pin the discovered runtime layout with the digests of the bytes that were
+    /// actually verified, so later launches can detect local modification.
+    func pinning(_ inventory: [String: String]) throws -> PiCatalogRelease {
+        let required = paths
+        let pinned = required.compactMap { path -> (String, String)? in inventory[path].map { (path, $0) } }
+        guard pinned.count == required.count, pinned.allSatisfy({ PiInstallationFiles.isDigest($0.1) } ) else {
+            throw AgentError.message("Verified runtime layout is missing required files; it was not registered.")
+        }
+        return PiCatalogRelease(version: version, platform: platform, architecture: architecture, source: source, artifacts: artifacts,
+                               files: Dictionary(uniqueKeysWithValues: pinned), executables: executables, notices: notices,
+                               provenance: provenance, requiredPaths: required, origin: origin)
+    }
 }
 
-/// Milk-owned approval, not an upstream latest feed. Pins come from the repository's
-/// runtime-manifest.json and bootstrap-runtime.py, not inferred release URLs.
+/// Milk-pinned runtime material. Production releases are discovered from the
+/// official upstream repository by `PiReleaseDiscovery`; nothing here is a list
+/// of approved Pi versions.
 struct PiInstallationCatalog {
+    /// Fixture/test and baseline metadata only.
     let releases: [PiCatalogRelease]
-    static let standard = Self(releases: [.init(version: "1.4.0", platform: "darwin", architecture: "arm64",
-        source: URL(string: "https://github.com/earendil-works/pi/releases/tag/v1.4.0")!, artifacts: [
-            .init(url: URL(string: "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-darwin-arm64.tar.gz")!, sha256: "79d9979d76a2a5adb7c28e27e9b44629928ccd0dc9fbb6ae7217860bd5e8be5d", binarySuffix: nil, destination: "pi"),
-            .init(url: URL(string: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz")!, sha256: "3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4", binarySuffix: "rg", destination: "bin/rg"),
-            .init(url: URL(string: "https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-aarch64-apple-darwin.tar.gz")!, sha256: "b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12", binarySuffix: "fd", destination: "bin/fd")
-        ], files: [
-            "pi": "b4d93b78e542ca8d1792242cf6c1a875ef4e6fb644141fb4cf67ec7c81ef9b14",
-            "bin/rg": "a326a1fb48074202e9ad41e4cd1e389eeea372c8c6f7d7e80da81176d5d9430e",
-            "bin/fd": "cf3bde435da174f41cf9589a2efeaf03804df7c250fc15e8b8a1e9bfc66ebc9a",
-            "photon_rs_bg.wasm": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c",
-            "native/darwin/prebuilds/darwin-arm64/darwin-platform.node": "36e909adf35c2734a2a52b3d65b7dbfb83f2278f306d51b7e32c5045516dfb7f"
-        ], executables: ["pi", "bin/rg", "bin/fd"], notices: ["Pi-LICENSE", "Pi-Dependencies.txt", "Bun-LICENSE.md", "Runtime-Libraries.txt", "modelcontextprotocol-typescript-sdk.txt", "pi-install-package-lock.json", "ripgrep/LICENSE-MIT", "ripgrep/UNLICENSE", "ripgrep/COPYING", "fd/LICENSE-MIT", "fd/LICENSE-APACHE"],
-        provenance: "Repository-verified upstream artifact pins. Bun/native corresponding-source and relink closure remains unresolved; this is not distribution clearance.")])
-    func approved(_ version: String) throws -> PiCatalogRelease {
-        guard let value = releases.first(where: { $0.version == version }) else { throw AgentError.message("No Milk-approved Pi artifact metadata for \(version).") }
-        try PiCompatibilityPolicy.requireSupportedVersion(PiCompatibilityPolicy.evaluate(version: version))
-        guard value.platform == "darwin", value.architecture == Self.architecture,
-              !value.artifacts.isEmpty, value.files["pi"] != nil, !value.notices.isEmpty,
-              value.files.values.allSatisfy(Self.isDigest), value.artifacts.allSatisfy({ Self.isDigest($0.sha256) && $0.url.scheme == "https" }),
-              value.files.keys.allSatisfy(PiInstallationFiles.safePath), value.executables.allSatisfy(PiInstallationFiles.safePath),
-              value.notices.allSatisfy(PiInstallationFiles.safePath), value.artifacts.allSatisfy({ PiInstallationFiles.safePath($0.destination) }) else {
-            throw AgentError.message("Approved artifact metadata is missing, invalid, or unavailable for this platform/architecture.")
-        }
-        return value
+    /// Milk-pinned auxiliary runtime artifacts (search tools). Their digests are
+    /// Milk trust anchors, not inferred from the Pi archive.
+    let tools: [PiArtifact]
+
+    init(releases: [PiCatalogRelease], tools: [PiArtifact]? = nil) {
+        self.releases = releases
+        self.tools = tools ?? Self.toolArtifacts(for: Self.architecture)
     }
+
     static var architecture: String {
         #if arch(arm64)
         return "arm64"
@@ -57,17 +99,49 @@ struct PiInstallationCatalog {
         return "x86_64"
         #endif
     }
-    static func isDigest(_ value: String) -> Bool { value.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) } }
+    static let standard = Self(releases: [])
+
+    /// Search tools Milk supplies alongside the upstream Pi runtime. Only the
+    /// Apple Silicon (arm64) tool pins are Milk-verified: Milk ships for Apple
+    /// Silicon only, and an unverified tool pin is never downloaded on another
+    /// architecture.
+    static let arm64ToolArtifacts: [PiArtifact] = [
+        .init(url: URL(string: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz")!,
+            sha256: "3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4", binarySuffix: "rg", destination: "bin/rg"),
+        .init(url: URL(string: "https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-aarch64-apple-darwin.tar.gz")!,
+            sha256: "b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12", binarySuffix: "fd", destination: "bin/fd")
+    ]
+    static func toolArtifacts(for architecture: String) -> [PiArtifact] { architecture == "arm64" ? arm64ToolArtifacts : [] }
+    static var toolArtifacts: [PiArtifact] { toolArtifacts(for: architecture) }
+    func runtimeExecutables(architecture: String) -> [String] { ["pi"] + tools.map(\.destination) }
+    func runtimeRequiredPaths(architecture: String) -> [String] {
+        ["pi", "photon_rs_bg.wasm", "native/darwin/prebuilds/darwin-\(architecture)/darwin-platform.node"] + tools.map(\.destination)
+    }
+    /// Notices bundled with Milk that are not tied to one Pi release.
+    static let upstreamNotices: [String] = ["Pi-LICENSE", "Bun-LICENSE.md", "Runtime-Libraries.txt",
+        "modelcontextprotocol-typescript-sdk.txt", "ripgrep/LICENSE-MIT", "ripgrep/UNLICENSE", "ripgrep/COPYING",
+        "fd/LICENSE-MIT", "fd/LICENSE-APACHE"]
+
+    func release(for version: String) throws -> PiCatalogRelease {
+        guard let value = releases.first(where: { $0.version == version }) else {
+            throw AgentError.message("No verified Pi release metadata for \(version). Check for updates or install the latest stable Pi.")
+        }
+        try value.validate()
+        return value
+    }
+    static func isDigest(_ value: String) -> Bool { PiInstallationFiles.isDigest(value) }
 }
 
 enum PiInstallationFiles {
     static func safePath(_ path: String) -> Bool {
         !path.isEmpty && !path.hasPrefix("/") && !path.contains("\\") && !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
     }
+    static func isDigest(_ value: String) -> Bool { value.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) } }
+    static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     static func digest(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
-        var hash = SHA256()
-        while let bytes = try handle.read(upToCount: 1024 * 1024), !bytes.isEmpty { hash.update(data: bytes) }
+        var hash = SHA256(), chunk = 1024 * 1024
+        while let bytes = try handle.read(upToCount: chunk), !bytes.isEmpty { hash.update(data: bytes) }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
     static func extract(_ archive: URL, to directory: URL) throws {
@@ -91,8 +165,12 @@ enum PiInstallationFiles {
         }
         return values
     }
+    /// Layout + architecture validation, plus pinned digests when they exist.
     static func validate(_ root: URL, release: PiCatalogRelease) throws -> [String: String] {
         let inventory = try inventory(root)
+        for path in release.paths {
+            guard inventory[path] != nil else { throw AgentError.message("Managed Pi runtime is missing a required file: \(path).") }
+        }
         for (path, hash) in release.files {
             guard inventory[path] == hash else { throw AgentError.message("Managed Pi integrity check failed: \(path).") }
         }
@@ -101,7 +179,7 @@ enum PiInstallationFiles {
             guard FileManager.default.isExecutableFile(atPath: file.path) else { throw AgentError.message("Missing executable runtime dependency: \(path).") }
             let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
             let header = try handle.read(upToCount: 12) ?? Data()
-            // Require a native thin 64-bit Mach-O matching the catalog; reject scripts/fat/ELF.
+            // Require a native thin 64-bit Mach-O matching the release; reject scripts/fat/ELF.
             let cpu: [UInt8] = release.architecture == "arm64" ? [12,0,0,1] : [7,0,0,1]
             guard header.count >= 12, Array(header.prefix(4)) == [207,250,237,254], Array(header[4..<8]) == cpu else {
                 throw AgentError.message("Wrong platform or architecture for \(path).")
