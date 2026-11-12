@@ -32,8 +32,28 @@ jobs:
           tar -xJf Tools/OMLXSidebar/source.tar.xz -C Tools/OMLXSidebar
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/milk-theme.patch
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/prefill-speed.patch
-          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.2"'\''))'
+          python3 - <<'PY'
+          from pathlib import Path
+          import lzma
+          root = Path("Tools/OMLXSidebar")
+          (root / "sushi-support.patch").write_bytes(lzma.decompress((root / "sushi-support.patch.xz").read_bytes()))
+          PY
+          patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/sushi-support.patch
+          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.3"'\''))'
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("Tools/OMLXSidebar/manifest.json")
+          s = p.read_text()
+          s = s.replace('"name": "oMLX Dashboard"', '"name": "oMLX & Sushi Dashboard"')
+          s = s.replace('Native SwiftUI oMLX dashboard in the Milk sidebar. Local automatic connection and read-only telemetry.', 'Native SwiftUI oMLX and Sushi dashboard in the Milk sidebar. Local automatic detection and read-only telemetry.')
+          p.write_text(s)
+          PY
           chmod +x Tools/OMLXSidebar/build.sh
+      - name: Test oMLX and Sushi telemetry adapters
+        run: |
+          cd Tools/OMLXSidebar
+          swiftc Telemetry.swift OMLXConfiguration.swift Tests/TelemetryTests.swift -o /tmp/omlx-sushi-tests
+          /tmp/omlx-sushi-tests
       - name: Compile and ad-hoc sign extension
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
