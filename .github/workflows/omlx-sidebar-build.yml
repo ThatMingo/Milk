@@ -31,7 +31,8 @@ jobs:
         run: |
           tar -xJf Tools/OMLXSidebar/source.tar.xz -C Tools/OMLXSidebar
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/milk-theme.patch
-          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.1"'\''))'
+          patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/prefill-speed.patch
+          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.2"'\''))'
           chmod +x Tools/OMLXSidebar/build.sh
       - name: Compile and ad-hoc sign extension
         env:

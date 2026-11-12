@@ -1,0 +1,125 @@
+--- OMLXSidebarExtension.swift
++++ OMLXSidebarExtension.swift
+@@ -46,8 +46,7 @@
+     @Published private(set) var totals = TotalsReading()
+ 
+     private let network: any ExtensionNetwork
+-    private var lastPrefill: (id: String, processed: Int, time: TimeInterval)?
+-    private var lastPrefillSpeed: (speed: Double, time: TimeInterval)?
++    private var prefillSpeedEstimator = PrefillSpeedEstimator()
+ 
+     init(network: any ExtensionNetwork) { self.network = network }
+ 
+@@ -99,7 +98,7 @@
+             let data = try await get(connection, path: "/admin/api/activity", timeout: 3)
+             try Task.checkCancellation()
+             var reading = try TelemetryParser.live(from: data)
+-            updateMeasuredSpeed(&reading)
++            prefillSpeedEstimator.update(&reading, at: ProcessInfo.processInfo.systemUptime)
+             self.live = reading
+             self.connected = true
+             self.hasChecked = true
+@@ -110,8 +109,7 @@
+             // expose the endpoint/key or a potentially sensitive error body.
+             self.connected = false
+             self.hasChecked = true
+-            self.lastPrefill = nil
+-            self.lastPrefillSpeed = nil
++            self.prefillSpeedEstimator.reset()
+         }
+     }
+ 
+@@ -127,35 +125,7 @@
+         }
+     }
+ 
+-    /// Some oMLX/Splash versions report prefill speed as 0 even while token
+-    /// progress increases. Use two real snapshots to measure it instead.
+-    private func updateMeasuredSpeed(_ reading: inout LiveReading) {
+-        let now = ProcessInfo.processInfo.systemUptime
+-        guard reading.phase == .processing else {
+-            lastPrefill = nil
+-            lastPrefillSpeed = nil
+-            return
+-        }
+-        let id = reading.requestID ?? "default"
+-        if let previous = lastPrefill, previous.id == id,
+-           reading.tokens >= previous.processed {
+-            let delta = now - previous.time
+-            if delta >= 0.25, delta < 5, reading.tokens > previous.processed {
+-                let measured = Double(reading.tokens - previous.processed) / delta
+-                if measured.isFinite && measured > 0 {
+-                    lastPrefillSpeed = (measured, now)
+-                }
+-            }
+-        }
+-        lastPrefill = (id, reading.tokens, now)
+-        if reading.speed == nil || reading.speed == 0 {
+-            if let last = lastPrefillSpeed, now - last.time < 2.0 {
+-                reading.speed = last.speed
+-            } else {
+-                reading.speed = nil // Unknown is not falsely displayed as 0 tok/s.
+-            }
+-        }
+-    }
++
+ }
+ 
+ private enum DashboardPalette {
+--- Telemetry.swift
++++ Telemetry.swift
+@@ -114,6 +114,54 @@
+     }
+ }
+ 
++// Splash/oMLX can publish prefill progress less frequently than the UI polls.
++// Calculate an observed rate only when processed tokens *change*. Repeated
++// identical snapshots must not reset the measurement clock, and the latest
++// valid measurement stays visible until this request stops or is replaced.
++struct PrefillSpeedEstimator {
++    private var lastProgress: (request: String, tokens: Int, time: TimeInterval)?
++    private var lastKnownSpeed: Double?
++
++    mutating func update(_ reading: inout LiveReading, at time: TimeInterval) {
++        guard reading.phase == .processing else {
++            reset()
++            return
++        }
++        let request = reading.requestID ?? "unknown-request"
++        if let previous = lastProgress, previous.request != request || reading.tokens < previous.tokens {
++            reset()
++        }
++
++        if let speed = reading.speed, speed.isFinite, speed > 0 {
++            lastKnownSpeed = speed
++        }
++        if let previous = lastProgress, previous.request == request,
++           reading.tokens > previous.tokens {
++            let interval = time - previous.time
++            if interval.isFinite && interval >= 0.25 {
++                let observed = Double(reading.tokens - previous.tokens) / interval
++                if observed.isFinite && observed > 0 {
++                    lastKnownSpeed = observed
++                }
++            }
++        }
++        // Take a new baseline only when token progress changes. If we
++        // reset it on every 0.5-second poll, sparse updates look like false
++        // spikes or are discarded entirely.
++        if lastProgress?.tokens != reading.tokens || lastProgress?.request != request {
++            lastProgress = (request, reading.tokens, time)
++        }
++        if reading.speed == nil || reading.speed == 0 {
++            reading.speed = lastKnownSpeed
++        }
++    }
++
++    mutating func reset() {
++        lastProgress = nil
++        lastKnownSpeed = nil
++    }
++}
++
+ // Display formatting lives outside SwiftUI so it can be tested on any platform.
+ enum DashboardFormat {
+     static func tokenCount(_ count: Int?) -> String {
