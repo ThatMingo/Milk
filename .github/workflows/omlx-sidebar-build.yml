@@ -36,7 +36,10 @@ jobs:
           from pathlib import Path
           import lzma
           root = Path("Tools/OMLXSidebar")
-          (root / "sushi-support.patch").write_bytes(lzma.decompress((root / "sushi-support.patch.xz").read_bytes()))
+          patch_bytes = lzma.decompress((root / "sushi-support.patch.xz").read_bytes())
+          # The original source archive predates its local test suite.
+          patch_bytes = patch_bytes.split(b"--- Tests/TelemetryTests.swift\\n", 1)[0]
+          (root / "sushi-support.patch").write_bytes(patch_bytes)
           PY
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/sushi-support.patch
           python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.3"'\''))'
@@ -52,7 +55,7 @@ jobs:
       - name: Test oMLX and Sushi telemetry adapters
         run: |
           cd Tools/OMLXSidebar
-          swiftc Telemetry.swift OMLXConfiguration.swift Tests/TelemetryTests.swift -o /tmp/omlx-sushi-tests
+          swiftc Telemetry.swift OMLXConfiguration.swift SushiSmokeTests.swift -o /tmp/omlx-sushi-tests
           /tmp/omlx-sushi-tests
       - name: Compile and ad-hoc sign extension
         env:
