@@ -38,7 +38,7 @@ jobs:
           root = Path("Tools/OMLXSidebar")
           patch_bytes = lzma.decompress((root / "sushi-support.patch.xz").read_bytes())
           # The original source archive predates its local test suite.
-          patch_bytes = patch_bytes.split(b"--- Tests/TelemetryTests.swift\\n", 1)[0]
+          patch_bytes = patch_bytes.split(b"--- Tests/TelemetryTests.swift", 1)[0]
           (root / "sushi-support.patch").write_bytes(patch_bytes)
           PY
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/sushi-support.patch
