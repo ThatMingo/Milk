@@ -1,0 +1,43 @@
+--- OMLXSidebarExtension.swift
++++ OMLXSidebarExtension.swift
+@@ -159,10 +159,9 @@
+ }
+ 
+ private enum DashboardPalette {
+-    static let background = Color(red: 14/255, green: 13/255, blue: 19/255)
+-    static let text = Color(red: 235/255, green: 233/255, blue: 229/255)
+-    static let muted = Color(red: 102/255, green: 99/255, blue: 111/255)
+-    static let track = Color(red: 45/255, green: 43/255, blue: 54/255)
++    static let text = ExtensionTheme.text
++    static let muted = ExtensionTheme.secondaryText
++    static let track = Color(nsColor: .separatorColor).opacity(0.48)
+     static let green = Color(red: 50/255, green: 192/255, blue: 84/255)
+     static let blue = Color(red: 0/255, green: 153/255, blue: 255/255)
+     static let amber = Color(red: 233/255, green: 179/255, blue: 57/255)
+@@ -204,14 +203,12 @@
+                         .padding(.bottom, 36 * scale)
+                     ssdSection(scale: scale)
+                 }
+-                .padding(.horizontal, 28 * scale)
+-                .padding(.top, 25 * scale)
+-                .padding(.bottom, 30 * scale)
++                .padding(.horizontal, 22.4 * scale)
++                .padding(.top, 20 * scale)
++                .padding(.bottom, 24 * scale)
+                 .frame(maxWidth: .infinity, alignment: .leading)
+             }
+-            .background(DashboardPalette.background)
+         }
+-        .background(DashboardPalette.background)
+         .task { await model.monitorWhileVisible() }
+     }
+ 
+@@ -330,7 +327,7 @@
+                     .frame(width: geometry.size.width * min(1, max(0, progress)))
+                 if let marker, marker > 0, marker < 1 {
+                     Rectangle()
+-                        .fill(Color.white.opacity(0.28))
++                        .fill(ExtensionTheme.text.opacity(0.28))
+                         .frame(width: 1.5, height: height)
+                         .offset(x: geometry.size.width * marker)
+                 }
