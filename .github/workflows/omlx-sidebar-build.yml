@@ -1,0 +1,52 @@
+name: Build oMLX Sidebar extension
+on:
+  push:
+    branches:
+      - build/omlx-sidebar
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile native arm64 .milkext
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Apple toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+          test "$(uname -m)" = "arm64"
+      - name: Build MilkExtensionKit author SDK only
+        run: |
+          swift build --package-path Packages/MilkExtensionKit --configuration debug
+          SDK_BIN="$(swift build --package-path Packages/MilkExtensionKit --show-bin-path --configuration debug)"
+          test -f "$SDK_BIN/libMilkExtensionKit.dylib"
+          echo "MILK_EXTENSION_SDK=$SDK_BIN" >> "$GITHUB_ENV"
+      - name: Unpack standalone extension
+        run: |
+          tar -xJf Tools/OMLXSidebar/source.tar.xz -C Tools/OMLXSidebar
+          chmod +x Tools/OMLXSidebar/build.sh
+      - name: Compile and ad-hoc sign extension
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: |
+          Tools/OMLXSidebar/build.sh
+          BUNDLE="Tools/OMLXSidebar/build/OMLXSidebar.milkext"
+          test -f "$BUNDLE/Contents/MacOS/OMLXSidebar"
+          test -f "$BUNDLE/Contents/Resources/manifest.json"
+          file "$BUNDLE/Contents/MacOS/OMLXSidebar"
+          codesign --verify --verbose=2 "$BUNDLE"
+      - name: Package installable extension
+        run: |
+          ditto -c -k --keepParent Tools/OMLXSidebar/build/OMLXSidebar.milkext OMLXSidebar.milkext.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMLXSidebar-macos26-arm64
+          path: OMLXSidebar.milkext.zip
+          if-no-files-found: error
+          retention-days: 14
