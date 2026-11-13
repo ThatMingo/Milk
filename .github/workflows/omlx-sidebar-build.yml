@@ -42,7 +42,9 @@ jobs:
           (root / "sushi-support.patch").write_bytes(patch_bytes)
           PY
           patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/sushi-support.patch
-          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.3"'\''))'
+          python3 -c 'from pathlib import Path; import lzma; p=Path("Tools/OMLXSidebar"); (p / "context-meter.patch").write_bytes(lzma.decompress((p / "context-meter.patch.xz").read_bytes()))'
+          patch -d Tools/OMLXSidebar -p0 < Tools/OMLXSidebar/context-meter.patch
+          python3 -c 'from pathlib import Path; p=Path("Tools/OMLXSidebar/manifest.json"); s=p.read_text(); assert '\''"version": "1.0.0"'\'' in s; p.write_text(s.replace('\''"version": "1.0.0"'\'', '\''"version": "1.0.4"'\''))'
           python3 - <<'PY'
           from pathlib import Path
           p = Path("Tools/OMLXSidebar/manifest.json")
@@ -52,19 +54,6 @@ jobs:
           p.write_text(s)
           PY
           chmod +x Tools/OMLXSidebar/build.sh
-      - name: Export extension sources for Context update
-        uses: actions/upload-artifact@v4
-        with:
-          name: OMLXSidebar-current-source
-          path: |
-            Tools/OMLXSidebar/OMLXSidebarExtension.swift
-            Tools/OMLXSidebar/Telemetry.swift
-            Tools/OMLXSidebar/OMLXConfiguration.swift
-            Tools/OMLXSidebar/SushiSmokeTests.swift
-            Tools/OMLXSidebar/build.sh
-            Tools/OMLXSidebar/manifest.json
-          if-no-files-found: error
-          retention-days: 1
       - name: Test oMLX and Sushi telemetry adapters
         run: |
           cd Tools/OMLXSidebar
