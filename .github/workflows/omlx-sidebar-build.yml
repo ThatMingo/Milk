@@ -52,6 +52,19 @@ jobs:
           p.write_text(s)
           PY
           chmod +x Tools/OMLXSidebar/build.sh
+      - name: Export extension sources for Context update
+        uses: actions/upload-artifact@v4
+        with:
+          name: OMLXSidebar-current-source
+          path: |
+            Tools/OMLXSidebar/OMLXSidebarExtension.swift
+            Tools/OMLXSidebar/Telemetry.swift
+            Tools/OMLXSidebar/OMLXConfiguration.swift
+            Tools/OMLXSidebar/SushiSmokeTests.swift
+            Tools/OMLXSidebar/build.sh
+            Tools/OMLXSidebar/manifest.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Test oMLX and Sushi telemetry adapters
         run: |
           cd Tools/OMLXSidebar
