@@ -15,8 +15,12 @@ final class PiInstallationTests: XCTestCase {
         try Data(#"{"fixture":"retain auth"}"#.utf8).write(to: ordinary.appendingPathComponent("auth.json"))
         try Data(#"{"fixture":"retain settings"}"#.utf8).write(to: ordinary.appendingPathComponent("settings.json"))
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        // A contained compatibility probe may write only inside its own private plan root, so the probe
+        // environment carries no external log channel. The log stays available to ordinary launches,
+        // which run with the legacy unsandboxed test setting and can be observed by `records(_:)`.
+        let probeOverrides = ["MILK_PARITY_READY": "1"]
         let runtime = PiRuntimeService(resources: resources, environmentOverrides: ["PI_CODING_AGENT_DIR": ordinary.path,
-            "MILK_PARITY_READY": "1", "MILK_COMPAT_LOG": root.appendingPathComponent("peer.jsonl").path, "PATH": "/usr/bin:/bin"], probeEnvironmentOverrides:["MILK_PARITY_READY":"1","MILK_COMPAT_LOG":root.appendingPathComponent("peer.jsonl").path])
+            "MILK_PARITY_READY": "1", "MILK_COMPAT_LOG": root.appendingPathComponent("peer.jsonl").path, "PATH": "/usr/bin:/bin"], probeEnvironmentOverrides: probeOverrides)
         return (root, executable, runtime)
     }
     private func records(_ root: URL) -> [JSONValue] {
@@ -78,27 +82,96 @@ final class PiInstallationTests: XCTestCase {
         XCTAssertEqual(try ordinarySnapshot(root), before); XCTAssertEqual(try Data(contentsOf: executable), code)
     }
 
+    // Each rejected candidate must be identifiable from the compatibility result itself.
+    // A fixture that dies before doing its work would otherwise satisfy `.incompatibleIntegration` by accident.
     @MainActor func testProbeRejectsVersionOnlyMissingMarkerMalformedRepliesAndUntestedVersion() async throws {
-        for overrides in [["MILK_COMPAT_VERSION_ONLY": "1"], ["MILK_PARITY_READY": "0"], ["MILK_COMPAT_BAD_COMMAND": "get_messages"], ["MILK_PARITY_VERSION": "1.5.0"]] {
+        struct Rejection { let overrides: [String: String]; let reason: String }
+        let cases: [Rejection] = [
+            Rejection(overrides: ["MILK_COMPAT_VERSION_ONLY": "1"], reason: "Pi exited (3)"),
+            Rejection(overrides: ["MILK_PARITY_READY": "0"], reason: "did not load Milk's integration extension"),
+            Rejection(overrides: ["MILK_COMPAT_BAD_COMMAND": "get_messages"], reason: "incompatible get_messages reply"),
+        ]
+        var observed: [String] = []
+        for case_ in cases {
             let (root, executable, base) = try fixture(), owner = AgentLifecycleCoordinator()
-            var env = base.environmentOverrides; env.merge(overrides) { _, new in new }
-            let runtime = PiRuntimeService(resources: base.resources, environmentOverrides: env, probeEnvironmentOverrides: env)
+            let runtime = PiRuntimeService(resources: base.resources,
+                environmentOverrides: base.environmentOverrides.merging(case_.overrides) { _, new in new },
+                probeEnvironmentOverrides: ["MILK_PARITY_READY": "1"].merging(case_.overrides) { _, new in new })
             let before = try ordinarySnapshot(root)
             let report = try await PiCompatibilityProbe.inspect(mode: .external(executable), runtime: runtime, lifecycle: owner)
-            XCTAssertEqual(report.state, overrides["MILK_PARITY_VERSION"] == nil ? .incompatibleIntegration : .untested)
-            XCTAssertFalse(report.usable); XCTAssertTrue(owner.owned.isEmpty)
+            observed.append(report.detail)
+            XCTAssertEqual(report.state, .incompatibleIntegration, report.detail)
+            XCTAssertEqual(report.evidence, .versionOnly, "A rejected candidate never earns an integration handshake")
+            XCTAssertFalse(report.usable)
+            XCTAssertEqual(report.version, "1.4.0", "The selected candidate must reach version detection before it is rejected")
+            XCTAssertTrue(report.detail.contains(case_.reason), "\(case_.overrides): \(report.detail)")
+            XCTAssertFalse(report.detail.contains("Traceback"), "The selected candidate must not be rejected because the fixture itself failed: \(report.detail)")
+            XCTAssertTrue(owner.owned.isEmpty)
+            XCTAssertTrue(records(root).isEmpty, "A contained probe must not write test state outside its private plan root")
             XCTAssertEqual(try ordinarySnapshot(root), before)
-            if overrides["MILK_PARITY_VERSION"] != nil {
-                var config = AgentConfiguration(); config.runtime = .external(executable)
-                let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: runtime)
-                var state: AgentCompatibilityState?
-                backend.onEvent = { if case .runtime(let status) = $0 { state = status.compatibility?.state } }
-                do { try await backend.start(workspace: root, session: .init(id: 0, title: "Untested"), configuration: config); XCTFail("Untested version launched") } catch {}
-                try await backend.shutdownAndWait()
-                XCTAssertEqual(state, report.state, "Startup and Settings probe use the same policy")
-                XCTAssertTrue(records(root).isEmpty, "An untested version must not enter RPC")
-            }
         }
+        XCTAssertEqual(Set(observed).count, cases.count, "Each rejection mechanism must be distinguishable: \(observed)")
+
+        // An eligible but unverified revision is probe-eligible and session-refused by the same policy.
+        let untested = PiCompatibilityPolicy.evaluate(version: "1.5.0")
+        XCTAssertEqual(untested.state, .untested)
+        XCTAssertFalse(untested.usable)
+        XCTAssertNoThrow(try PiCompatibilityPolicy.requireProbeEligible(untested), "The isolated probe may inspect an eligible, unverified revision")
+        do {
+            try PiCompatibilityPolicy.requireSupportedVersion(untested)
+            XCTFail("An unverified revision became session-eligible")
+        } catch let error as AgentCompatibilityError { XCTAssertEqual(error.result.state, .untested) }
+    }
+
+    // Documented behavior: the isolated probe is how an eligible, unverified revision is verified.
+    @MainActor func testCompletedProbeVerifiesAnUntestedVersion() async throws {
+        let (root, executable, base) = try fixture(), owner = AgentLifecycleCoordinator()
+        let runtime = PiRuntimeService(resources: base.resources,
+            environmentOverrides: base.environmentOverrides.merging(["MILK_PARITY_VERSION": "1.5.0"]) { _, new in new },
+            probeEnvironmentOverrides: ["MILK_PARITY_READY": "1", "MILK_PARITY_VERSION": "1.5.0"])
+        let before = try ordinarySnapshot(root)
+        let report = try await PiCompatibilityProbe.inspect(mode: .external(executable), runtime: runtime, lifecycle: owner)
+        XCTAssertEqual(report.state, .supported, report.detail)
+        XCTAssertEqual(report.evidence, .integrationHandshake)
+        XCTAssertEqual(report.version, "1.5.0")
+        XCTAssertTrue(report.usable, "A completed isolated handshake establishes supported compatibility: \(report.detail)")
+        XCTAssertTrue(owner.owned.isEmpty)
+        XCTAssertTrue(records(root).isEmpty)
+        XCTAssertEqual(try ordinarySnapshot(root), before, "A probe must not touch the ordinary profile")
+    }
+
+    // Ordinary session startup keeps requiring a verified revision, even when the probe path accepts the candidate.
+    @MainActor func testUntestedVersionIsRefusedAtSessionStartBeforeRpc() async throws {
+        let (root, executable, base) = try fixture()
+        var verified = base.environmentOverrides
+        verified["MILK_PARITY_VERSION"] = "1.4.0"
+        let verifiedRuntime = PiRuntimeService(resources: base.resources, environmentOverrides: verified,
+            probeEnvironmentOverrides: ["MILK_PARITY_READY": "1", "MILK_PARITY_VERSION": "1.4.0"])
+        var config = AgentConfiguration(); config.runtime = .external(executable)
+        // Control: this fixture does record activity when a session is actually allowed to run.
+        let control = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: verifiedRuntime)
+        addTeardownBlock { try await control.shutdownAndWait() }
+        try await control.start(workspace: root, session: .init(id: 0, title: "Verified"), configuration: config)
+        try await control.shutdownAndWait()
+        let controlRecords = records(root)
+        XCTAssertFalse(controlRecords.isEmpty, "The fixture log channel must work for a session that is allowed to launch")
+        XCTAssertEqual(controlRecords.first?["agentDir"].string, root.appendingPathComponent("ordinary").path)
+
+        let untestedRuntime = PiRuntimeService(resources: base.resources,
+            environmentOverrides: verified.merging(["MILK_PARITY_VERSION": "1.5.0"]) { _, new in new },
+            probeEnvironmentOverrides: ["MILK_PARITY_READY": "1", "MILK_PARITY_VERSION": "1.5.0"])
+        let backend = PiBackend(sandboxSettings: sandboxOffForLegacyTests(), runtime: untestedRuntime)
+        addTeardownBlock { try await backend.shutdownAndWait() }
+        var state: AgentCompatibilityState?
+        backend.onEvent = { if case .runtime(let status) = $0 { state = status.compatibility?.state } }
+        do {
+            try await backend.start(workspace: root, session: .init(id: 0, title: "Untested"), configuration: config)
+            XCTFail("Untested version launched")
+        } catch let error as AgentCompatibilityError { XCTAssertEqual(error.result.state, .untested, error.result.detail) }
+        catch { XCTFail("Unexpected startup failure: \(error)") }
+        try await backend.shutdownAndWait()
+        XCTAssertEqual(state, .untested, "Startup and Settings probe classify the same revision identically")
+        XCTAssertEqual(records(root).count, controlRecords.count, "An untested version must not enter RPC")
     }
 
     @MainActor func testRealBundledProbeIsEphemeralAndDoesNotLoadOrdinaryConfiguration() async throws {
