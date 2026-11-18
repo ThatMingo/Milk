@@ -66,10 +66,12 @@ struct AgentResponseTurn: Identifiable, Equatable {
             }
         }
     }
+    /// Consecutive tool and visible thinking blocks share one run. Assistant text
+    /// separates runs so the reader never loses the original answer chronology.
     var presentationGroups: [AgentResponseContentGroup] {
         var groups: [AgentResponseContentGroup] = []
         for unit in displayUnits {
-            if unit.kind == .activity, groups.last?.isActivity == true {
+            if unit.kind != .text, let last = groups.last, last.blocks.last?.kind != .text {
                 groups[groups.count - 1].blocks.append(unit)
             } else {
                 groups.append(.init(id: unit.id, blocks: [unit]))
@@ -89,7 +91,8 @@ struct AgentResponseTurn: Identifiable, Equatable {
 struct AgentResponseContentGroup: Identifiable, Equatable {
     var id: String
     var blocks: [AgentContentBlock]
-    var isActivity: Bool { blocks.first?.kind == .activity }
+    /// A run with no tool calls keeps the existing standalone Thinking UI.
+    var isActivity: Bool { blocks.contains { $0.kind == .activity } }
 }
 struct AgentTranscriptItem: Identifiable, Equatable {
     var id: String

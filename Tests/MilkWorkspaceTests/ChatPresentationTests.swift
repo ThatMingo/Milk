@@ -47,7 +47,7 @@ final class ChatPresentationTests: XCTestCase {
         XCTAssertEqual(transcript.count, 2)
         let response = try XCTUnwrap(transcript.last?.response)
         XCTAssertEqual(response.activityIDs, ["tool-1", "tool-2"])
-        XCTAssertEqual(response.presentationGroups.filter(\.isActivity).map { $0.blocks.count }, [1, 1])
+        XCTAssertEqual(response.presentationGroups.filter(\.isActivity).map { $0.blocks.count }, [1, 2])
         XCTAssertEqual(response.blocks.map(\.kind), [.thinking, .text, .activity, .text, .thinking, .activity, .text])
         XCTAssertEqual(response.blocks.filter { $0.kind == .text }.map(\.text), ["Before", "Between", "After"])
         let restored = try JSONDecoder().decode([AgentMessage].self, from: JSONEncoder().encode([user, first, second]))
@@ -55,7 +55,7 @@ final class ChatPresentationTests: XCTestCase {
         let next = AgentMessage(id: "follow-up", role: "user", text: "Next task")
         XCTAssertEqual(AgentTranscript.items(messages: [user, first, second, next, .init(id: "next-answer", role: "assistant", text: "Next answer")], activities: activities).count, 4)
     }
-    func testConsecutiveActivityGroupsSplitAtTextAndThinking() {
+    func testThinkingAndActivityShareRunsButTextSeparatesThem() {
         func response(_ kinds: [AgentContentBlock.Kind]) -> AgentResponseTurn {
             var result = AgentResponseTurn(id: "response")
             for (index, kind) in kinds.enumerated() {
@@ -69,15 +69,52 @@ final class ChatPresentationTests: XCTestCase {
         XCTAssertEqual(text.presentationGroups.map { $0.blocks.count }, [2, 1, 2])
         XCTAssertEqual(text.presentationGroups.map { $0.blocks[0].kind }, [.activity, .text, .activity])
         let thinking = response([.activity, .thinking, .activity])
-        XCTAssertEqual(thinking.presentationGroups.map { $0.blocks.count }, [1, 1, 1])
-        XCTAssertEqual(thinking.presentationGroups.map { $0.blocks[0].kind }, [.activity, .thinking, .activity])
+        XCTAssertEqual(thinking.presentationGroups.map { $0.blocks.count }, [3])
+        XCTAssertEqual(thinking.presentationGroups[0].blocks.map(\.kind), [.activity, .thinking, .activity])
         XCTAssertEqual(thinking.activities.map(\.output), ["Attached output", "Attached output"])
-        // Redacted/internal content is not a visible separator.
+        // Redacted/internal content is excluded rather than shown as a step.
         var hidden = thinking
         hidden.blocks[1].redacted = true
         hidden.blocks[1].text = ""
         XCTAssertEqual(hidden.presentationGroups.filter(\.isActivity).map { $0.blocks.count }, [2])
     }
+    @MainActor func testMergedActivityRowsKeepThinkingAndToolOutputsIndependent() {
+        let message = AgentMessage(id: "assistant", role: "assistant", text: "Finished", blocks: [
+            .init(id: "read-block", index: 0, kind: .activity, activityID: "read"),
+            .init(id: "thought", index: 1, kind: .thinking, text: "Check results"),
+            .init(id: "write-block", index: 2, kind: .activity, activityID: "write"),
+            .init(id: "answer", index: 3, kind: .text, text: "Finished")
+        ])
+        var conversation = SessionConversation()
+        conversation.messages = [message]
+        conversation.activities = [
+            .init(id: "read", kind: "Read", detail: "file", afterMessageID: message.id, status: .completed),
+            .init(id: "write", kind: "Write", detail: "file", afterMessageID: message.id, status: .completed)
+        ]
+        let session = ChatTranscriptSession()
+        let initial = session.rows(conversation, empty: "")
+        XCTAssertEqual(initial.map(\.id), ["assistant", "read-block", "answer-markdown-0"])
+        guard case .activity(let steps, let expanded, let outputs, let thoughts) = initial[1].content else {
+            return XCTFail("Expected combined activity card")
+        }
+        XCTAssertFalse(expanded)
+        XCTAssertTrue(outputs.isEmpty)
+        XCTAssertTrue(thoughts.isEmpty)
+        XCTAssertEqual(steps.map(\.id), ["tool/read", "thinking/thought", "tool/write"])
+
+        session.choices["assistant/read-block"] = true
+        session.choices["assistant/thinking/thought"] = true
+        session.choices["assistant/output/read"] = true
+        let opened = session.rows(conversation, empty: "")
+        XCTAssertEqual(opened.map(\.id), initial.map(\.id))
+        guard case .activity(_, let isOpen, let visibleOutputs, let visibleThoughts) = opened[1].content else {
+            return XCTFail("Expected combined activity card")
+        }
+        XCTAssertTrue(isOpen)
+        XCTAssertEqual(visibleOutputs, ["read"])
+        XCTAssertEqual(visibleThoughts, ["thought"])
+    }
+
     func testRPCMessageAndToolLifecycleBoundariesDoNotSplitVisibleActivityRuns() throws {
         var decoder = PiMessageDecoder()
         var messages = [AgentMessage(id: "user", role: "user", text: "Task")]

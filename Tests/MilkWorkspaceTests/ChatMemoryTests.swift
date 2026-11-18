@@ -15,8 +15,9 @@ private struct ChatMemoryRowView: View {
             case .markdown(let block, _): AgentMarkdownPiece(block: block).font(.system(size: 14)).textSelection(.enabled)
             case .thinking(let block, let label, let expanded, let active):
                 AgentThinkingContent(block: block, label: label, expanded: expanded, active: active, toggle: {})
-            case .activity(let activities, let expanded, let outputs):
-                AgentActivityGroupContent(activities: activities, expanded: expanded, outputs: outputs, toggle: {}, toggleOutput: { _ in })
+            case .activity(let steps, let expanded, let outputs, let thoughts):
+                AgentActivityGroupContent(steps: steps, expanded: expanded, outputs: outputs, thoughts: thoughts,
+                    toggle: {}, toggleOutput: { _ in }, toggleThinking: { _ in })
             case .changes: Text("changed")
             case .empty(let text): SelectableContent(text: text).fixedSize(horizontal: false, vertical: true)
             case .notice(let text): Text(text)

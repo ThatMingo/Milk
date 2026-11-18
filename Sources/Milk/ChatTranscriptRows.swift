@@ -6,7 +6,7 @@ struct ChatTranscriptRow: Identifiable, Equatable {
         case header(AgentResponseTurn)
         case markdown(AgentMarkdownBlock, streaming: Bool)
         case thinking(AgentContentBlock, label: Bool, expanded: Bool, active: Bool)
-        case activity([AgentActivity], expanded: Bool, outputs: Set<String>)
+        case activity([ChatActivityStep], expanded: Bool, outputs: Set<String>, thoughts: Set<String>)
         case changes([AgentFileChange])
         case notice(String)
         case error(String)
@@ -17,6 +17,40 @@ struct ChatTranscriptRow: Identifiable, Equatable {
     var order: [Int]
     var gap: Double
     var content: Content
+}
+
+/// One step in an activity card, in exactly the order emitted by the agent.
+enum ChatActivityStep: Identifiable, Equatable {
+    case tool(AgentActivity)
+    case thinking(AgentContentBlock)
+
+    var id: String {
+        switch self {
+        case .tool(let activity): return "tool/" + activity.id
+        case .thinking(let block): return "thinking/" + block.id
+        }
+    }
+    var running: Bool {
+        switch self {
+        case .tool(let activity): return activity.status == .running || activity.status == .approval
+        case .thinking(let block): return block.streaming
+        }
+    }
+}
+
+extension AgentResponseTurn {
+    func activitySteps(in group: AgentResponseContentGroup) -> [ChatActivityStep] {
+        let byID = Dictionary(activities.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return group.blocks.compactMap { block -> ChatActivityStep? in
+            switch block.kind {
+            case .activity:
+                guard let id = block.activityID, let activity = byID[id] else { return nil }
+                return .tool(activity)
+            case .thinking: return .thinking(block)
+            case .text: return nil
+            }
+        }
+    }
 }
 
 /// Rendering state is local to Chat, keyed by session and stable transcript IDs.
@@ -55,14 +89,22 @@ struct ChatTranscriptRow: Identifiable, Equatable {
                 else if let turn = item.response {
                     add(item.id, .header(turn), [0])
                     let expanded = choices[item.id] ?? false
-                    let firstThinking = turn.blocks.first(where: \.visibleThinking)?.id
-                    for group in turn.presentationGroups {
+                    let groups = turn.presentationGroups
+                    let firstThinking = groups.filter { !$0.isActivity }.flatMap(\.blocks).first(where: \.visibleThinking)?.id
+                    for group in groups {
                         if group.isActivity {
-                            let activities = group.blocks.compactMap { block in turn.activities.first { $0.id == block.activityID } }
+                            let steps = turn.activitySteps(in: group)
                             let key = item.id + "/" + group.id
-                            let open = choices[key] ?? activities.contains { $0.status == .running || $0.status == .approval }
-                            let outputs = Set(activities.filter { choices[item.id + "/output/" + $0.id] == true }.map(\.id))
-                            add(group.id, .activity(activities, expanded: open, outputs: outputs), [turn.blocks.firstIndex(where: { $0.id == group.id }) ?? 0])
+                            let open = choices[key] ?? steps.contains { $0.running }
+                            let outputs = Set(steps.compactMap { step -> String? in
+                                guard case .tool(let activity) = step, choices[item.id + "/output/" + activity.id] == true else { return nil }
+                                return activity.id
+                            })
+                            let thoughts = Set(steps.compactMap { step -> String? in
+                                guard case .thinking(let block) = step, choices[item.id + "/thinking/" + block.id] == true else { return nil }
+                                return block.id
+                            })
+                            add(group.id, .activity(steps, expanded: open, outputs: outputs, thoughts: thoughts), [turn.blocks.firstIndex(where: { $0.id == group.id }) ?? 0])
                         } else {
                             for block in group.blocks {
                                 let j = turn.blocks.firstIndex(where: { $0.id == block.id }) ?? 0

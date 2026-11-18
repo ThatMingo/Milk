@@ -212,10 +212,11 @@ private struct ChatTranscriptRowView: View {
             case .markdown(let block, _): AgentMarkdownPiece(block: block).font(.system(size: 14)).textSelection(.enabled)
             case .thinking(let block, let label, let expanded, let active):
                 AgentThinkingContent(block: block, label: label, expanded: expanded, active: active) { session.choices[row.owner] = !expanded }
-            case .activity(let activities, let expanded, let outputs):
-                AgentActivityGroupContent(activities: activities, expanded: expanded, outputs: outputs,
+            case .activity(let steps, let expanded, let outputs, let thoughts):
+                AgentActivityGroupContent(steps: steps, expanded: expanded, outputs: outputs, thoughts: thoughts,
                     toggle: { session.choices[row.owner + "/" + row.id] = !expanded },
-                    toggleOutput: { id in session.choices[row.owner + "/output/" + id] = !outputs.contains(id) })
+                    toggleOutput: { id in session.choices[row.owner + "/output/" + id] = !outputs.contains(id) },
+                    toggleThinking: { id in session.choices[row.owner + "/thinking/" + id] = !thoughts.contains(id) })
             case .changes(let changes):
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Changed files · \(changes.count)").font(.system(size: 12, weight: .semibold))
@@ -286,7 +287,9 @@ struct AgentResponseTurnView: View, Equatable {
     let response: AgentResponseTurn
     var readingOrder: [Int] = []
     @State private var thinkingExpanded = false
-    private var firstThinkingID: String? { response.blocks.first(where: \.visibleThinking)?.id }
+    private var firstThinkingID: String? {
+        response.presentationGroups.filter { !$0.isActivity }.flatMap(\.blocks).first(where: \.visibleThinking)?.id
+    }
     private var visibleBlocks: [AgentContentBlock] {
         let known = Set(response.activities.map(\.id))
         return response.blocks.filter { block in
@@ -304,9 +307,8 @@ struct AgentResponseTurnView: View, Equatable {
             AgentResponseHeader(response: response)
             ForEach(response.presentationGroups) { group in
                 if group.isActivity {
-                    AgentActivityGroupView(activities: group.blocks.compactMap { block in
-                        response.activities.first { $0.id == block.activityID }
-                    }).chatReadingTarget(group.id, order: readingOrder + [response.blocks.firstIndex(where: { $0.id == group.blocks[0].id }) ?? 0])
+                    AgentActivityGroupView(steps: response.activitySteps(in: group))
+                        .chatReadingTarget(group.id, order: readingOrder + [response.blocks.firstIndex(where: { $0.id == group.blocks[0].id }) ?? 0])
                 } else {
                     content(group.blocks.filter { block in blocks.contains { $0.id == block.id } })
                 }
@@ -355,42 +357,81 @@ struct AgentThinkingContent: View {
 }
 
 private struct AgentActivityGroupView: View {
-    let activities: [AgentActivity]
+    let steps: [ChatActivityStep]
     @State private var expandedChoice: Bool?
     @State private var outputs: Set<String> = []
-    private var running: Bool { activities.contains { $0.status == .running || $0.status == .approval } }
+    @State private var thoughts: Set<String> = []
+    private var running: Bool { steps.contains { $0.running } }
     private var expanded: Bool { expandedChoice ?? running }
     var body: some View {
-        AgentActivityGroupContent(activities: activities, expanded: expanded, outputs: outputs, toggle: { expandedChoice = !expanded }, toggleOutput: { id in if !outputs.insert(id).inserted { outputs.remove(id) } })
+        AgentActivityGroupContent(steps: steps, expanded: expanded, outputs: outputs, thoughts: thoughts,
+            toggle: { expandedChoice = !expanded },
+            toggleOutput: { id in if !outputs.insert(id).inserted { outputs.remove(id) } },
+            toggleThinking: { id in if !thoughts.insert(id).inserted { thoughts.remove(id) } })
     }
 }
 struct AgentActivityGroupContent: View {
-    let activities: [AgentActivity]
+    let steps: [ChatActivityStep]
     let expanded: Bool
     let outputs: Set<String>
+    let thoughts: Set<String>
     let toggle: () -> Void
     let toggleOutput: (String) -> Void
-    private var running: Bool { activities.contains { $0.status == .running || $0.status == .approval } }
+    let toggleThinking: (String) -> Void
+    private var running: Bool { steps.contains { $0.running } }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
                 HStack(spacing: 8) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 9))
                     Text("Activity").fontWeight(.semibold)
-                    Text("· \(activities.count) \(activities.count == 1 ? "step" : "steps")").foregroundStyle(MilkTheme.muted)
+                    Text("· \(steps.count) \(steps.count == 1 ? "step" : "steps")").foregroundStyle(MilkTheme.muted)
                     Spacer()
                     if running { ProgressView().controlSize(.mini).accessibilityHidden(true) }
                 }.padding(.horizontal, 12).frame(height: 34).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel("Activity")
-                .accessibilityValue("\(activities.count) steps, \(expanded ? "Expanded" : "Collapsed"), \(running ? "Running" : "Complete")")
+                .accessibilityValue("\(steps.count) steps, \(expanded ? "Expanded" : "Collapsed"), \(running ? "Running" : "Complete")")
                 .accessibilityIdentifier("milk.pi.turn.activity")
-            if expanded { ForEach(activities) { activity in AgentActivityRowContent(activity: activity, output: outputs.contains(activity.id), toggle: { toggleOutput(activity.id) }) } }
+            if expanded {
+                ForEach(steps) { step in
+                    switch step {
+                    case .tool(let activity):
+                        AgentActivityRowContent(activity: activity, output: outputs.contains(activity.id), toggle: { toggleOutput(activity.id) })
+                    case .thinking(let block):
+                        AgentActivityThinkingRowContent(block: block, expanded: thoughts.contains(block.id), toggle: { toggleThinking(block.id) })
+                    }
+                }
+            }
         }.background(MilkTheme.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(MilkTheme.line))
-
     }
 }
 
+private struct AgentActivityThinkingRowContent: View {
+    let block: AgentContentBlock
+    let expanded: Bool
+    let toggle: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggle) {
+                HStack(spacing: 10) {
+                    Image(systemName: "brain").foregroundStyle(MilkTheme.muted).frame(width: 12)
+                    Text("Thinking").font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 0)
+                    if block.streaming { ProgressView().controlSize(.mini).accessibilityHidden(true) }
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 9))
+                }.padding(.horizontal, 12).frame(height: 30).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Thinking").accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                .accessibilityIdentifier("milk.pi.activity.thinking." + block.id)
+            if expanded && !block.text.isEmpty {
+                SelectableContent(text: block.text, size: 12).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(MilkTheme.muted).padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading).background(MilkTheme.canvas)
+            }
+        }
+    }
+}
 struct AgentActivityRowContent: View {
     let activity: AgentActivity
     let output: Bool

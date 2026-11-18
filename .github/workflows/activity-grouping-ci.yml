@@ -1,0 +1,33 @@
+name: Activity grouping — macOS verification
+on:
+  push:
+    branches:
+      - feature/activity-thinking-grouping
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Swift tests and native Milk build
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        shell: bash
+        run: |
+          export DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+          swift --version
+      - name: Presentation regression tests
+        run: |
+          export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
+          swift test --cache-path "$PWD/.build/cache" --filter ChatPresentationTests
+      - name: All Swift tests
+        run: |
+          export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
+          swift test --cache-path "$PWD/.build/cache"
+      - name: Build and sign native app (ad hoc)
+        run: ./scripts/build.sh

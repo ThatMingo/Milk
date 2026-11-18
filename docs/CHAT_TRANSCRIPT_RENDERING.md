@@ -20,6 +20,16 @@ transcript projection's semantics, or Pi. `AgentTranscriptProjection` still owns
 messages/blocks/activities it builds; `ChatTranscriptSession` owns only derived render
 state: projected rows, measured heights, shared Markdown heights and user disclosures.
 
+## Activity grouping
+
+Consecutive visible thinking blocks and tool operations in the same assistant response
+are shown in one Activity card, with the original order preserved. User-facing
+assistant text separates Activity cards. A run containing only thinking keeps the
+standalone Thinking disclosure. Each thinking step and tool output inside an
+expanded Activity card has its own disclosure; collapsed cards remain one stable
+transcript row. Empty/redacted thinking never creates a visible step. Grouping is a
+presentation-only projection; Pi events and native history are unchanged.
+
 ## Render-session memory
 
 - `ChatTranscriptSession.heights` keeps one `(content, width, height)` per **live** piece,
