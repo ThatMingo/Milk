@@ -15,7 +15,7 @@ struct SandboxPolicy {
             let path = try resolver.resolve(url)
             let project = try resolver.resolve(context.roots.project)
             guard project.isDirectory else { return result(.deny, .unresolvedPath, path) }
-            let protected: [(String, URL, SandboxResolvedPath?)] = context.configuration.protectedLocations.map { ($0.id, $0.url, try? resolver.resolve($0.url)) }
+            let protected = try context.configuration.protectedLocations.map { ($0.id, try resolver.resolve($0.url)) }
             let inactive = try context.roots.inactiveProfiles.map { ($0, try resolver.resolve($0.url)) }
             let active = try context.roots.activeProfile.map { ($0, try resolver.resolve($0.url)) }
             let folders = try (context.configuration.globalAllowedFolders + context.projectConfiguration.allowedFolders)
@@ -23,7 +23,7 @@ struct SandboxPolicy {
             let builds = try context.roots.writableBuildRoots.map { try resolver.resolve($0) }
             let profileIDs = inactive.map { $0.0.id } + (active.map { [$0.0.id] } ?? [])
             guard !profileIDs.contains(where: \.isEmpty), Set(profileIDs).count == profileIDs.count else { return result(.deny, .ambiguousRoots, path) }
-            let snapshots = [path, project] + protected.compactMap { $0.2 } + inactive.map(\.1) + folders.map(\.1) + builds + (active.map { [$0.1] } ?? [])
+            let snapshots = [path, project] + protected.map(\.1) + inactive.map(\.1) + folders.map(\.1) + builds + (active.map { [$0.1] } ?? [])
             guard snapshots.allSatisfy({ $0.revalidated(using: resolver) }) else { return result(.deny, .unresolvedPath, path) }
             // Conflicting profile ownership or same-priority folder permissions has no safe winner.
             let matchingInactive = inactive.filter { $0.1.contains(path) }
@@ -33,13 +33,7 @@ struct SandboxPolicy {
                 return result(.deny, .ambiguousRoots, path)
             }
             // Strongest-to-weakest precedence. Temporary grants are applied only AFTER this decision.
-            let matchingProtected = protected.filter { entry in
-                if let resolved = entry.2 { return resolved.contains(path) }
-                // Milk cannot inspect this location (for example a TCC-protected macOS
-                // directory). Treat it as protected literally so it is never silently readable.
-                let literal = entry.1.standardizedFileURL.path
-                return path.canonicalURL.path == literal || path.canonicalURL.path.hasPrefix(literal + "/")
-            }
+            let matchingProtected = protected.filter { $0.1.contains(path) }
             if !matchingProtected.isEmpty { return result(.requireProtectedLocationApproval, .protectedLocation, path, Set(matchingProtected.map { $0.0 })) }
             if !matchingInactive.isEmpty { return result(.requireSandboxApproval, .inactiveProfile, path, Set(matchingInactive.map { $0.0.id })) }
             if project.contains(path), context.projectConfiguration.access == .readOnly, action != .read { return result(.deny, .projectReadOnly, path) }
