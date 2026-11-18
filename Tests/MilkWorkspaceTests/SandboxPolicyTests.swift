@@ -184,4 +184,144 @@ final class SandboxPolicyTests: XCTestCase {
         XCTAssertTrue(SandboxEnvironmentDomain.milkExtensionWorker.requiresIndependentSanitizedEnvironment)
         XCTAssertTrue(SandboxEnvironmentDomain.agentRuntime.mayReceiveConfiguredProviderCredential)
     }
+
+    // MARK: - Fail-closed regression: audited Sandbox bypass attempts (docs/SANDBOX_SECURITY_AUDIT_2026-11-18.md)
+    //
+    // These assert the enforced fail-closed behaviour. They deliberately assert the opposite of the
+    // compatibility behaviour that commit befaa31 introduced and ea3388f reverted: an unverifiable
+    // Protected Location must deny evaluation and must prevent profile generation. They use only
+    // disposable paths under `root` and always restore directory permissions before teardown.
+
+    // Audited attempt: a Protected File Milk cannot inspect, reached through a pre-existing hard-link
+    // alias that sits inside a broad readWrite Allowed Folder.
+    func testFailClosedUnresolvableProtectedLocationDeniesEveryCandidateAndRefusesProfile() throws {
+        let sealed = root.appendingPathComponent("sealed"), opened = root.appendingPathComponent("open")
+        try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: opened, withIntermediateDirectories: true)
+        let secret = sealed.appendingPathComponent("secret")
+        try Data("synthetic-secret".utf8).write(to: secret)
+        let alias = opened.appendingPathComponent("alias")
+        try FileManager.default.linkItem(at: secret, to: alias)   // same inode, readable spelling outside the sealed directory
+        var secretInfo = stat(), aliasInfo = stat()
+        guard lstat(secret.path, &secretInfo) == 0, lstat(alias.path, &aliasInfo) == 0 else { throw SandboxPathError.inaccessible }
+        XCTAssertEqual(SandboxFileIdentity(secretInfo), SandboxFileIdentity(aliasInfo), "The alias is the same Protected object under a second name")
+        chmod(sealed.path, 0o000)
+        defer { chmod(sealed.path, 0o700) }
+        var c = context()
+        c.configuration.protectedLocations = [.init(id: "regression:sealed-secret", url: secret)]
+        c.configuration.globalAllowedFolders = [.init(id: "regression:broad", url: root, access: .readWrite)]
+        // The alias has a different name, so a literal path comparison would have admitted it.
+        XCTAssertNotEqual(secret.path, alias.path)
+        for action in [SandboxFileAction.read, .write, .delete] {
+            let decisionForAlias = decision(alias, action, c)
+            XCTAssertEqual(decisionForAlias.outcome, .deny, action.rawValue)
+            XCTAssertEqual(decisionForAlias.rule, .unresolvedPath, action.rawValue)
+            XCTAssertEqual(decision(target, action, c).outcome, .deny, action.rawValue)
+            XCTAssertEqual(decision(outside.appendingPathComponent("new"), action, c).outcome, .deny, action.rawValue)
+        }
+        // Profile generation must refuse rather than emit a profile whose Protected carve-out is nominal.
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: c, dependencies: SandboxProfileBuilder.systemReadRoots),
+                             "Profile generation must refuse an unverifiable Protected Location") { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.inaccessible)
+        }
+    }
+
+    // Audited attempt: a Protected Location expressed as a symlink chain longer than the resolver's
+    // link ceiling, with its real target readable inside a broad readWrite Allowed Folder.
+    func testFailClosedProtectedLocationBehindLongSymlinkChainOverBroadGrant() throws {
+        let targetDirectory = root.appendingPathComponent("chain-target")
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        let token = targetDirectory.appendingPathComponent("token")
+        try Data("synthetic-target".utf8).write(to: token)
+        var destination = targetDirectory.path
+        for index in stride(from: 44, through: 0, by: -1) {
+            let hop = root.appendingPathComponent("hop\(index)")
+            try FileManager.default.createSymbolicLink(atPath: hop.path, withDestinationPath: destination)
+            destination = hop.path
+        }
+        let chainHead = root.appendingPathComponent("hop0")
+        XCTAssertThrowsError(try SandboxPathResolver().resolve(chainHead)) { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.tooManyLinks)
+        }
+        var c = context()
+        c.configuration.protectedLocations = [.init(id: "regression:chain", url: chainHead)]
+        c.configuration.globalAllowedFolders = [.init(id: "regression:broad", url: root, access: .readWrite)]
+        for action in [SandboxFileAction.read, .write, .delete] {
+            let d = decision(token, action, c)
+            XCTAssertEqual(d.outcome, .deny, action.rawValue)
+            XCTAssertEqual(d.rule, .unresolvedPath, action.rawValue)
+        }
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: c, dependencies: SandboxProfileBuilder.systemReadRoots),
+                             "An unresolvable Protected Location must not compile a profile") { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.tooManyLinks)
+        }
+    }
+
+    // Audited attempt: Protected Locations whose identity Milk cannot establish at all. Each one must
+    // block admission instead of being guessed at; this is the fail-closed side of the compatibility
+    // limitation and is expected to refuse Settings/launch rather than partially work.
+    func testFailClosedUnverifiableProtectedLocationsRefuseProfileGeneration() throws {
+        // A Protected Location inside a directory that cannot be searched.
+        var sealedParentCase = context()
+        let sealedParent = root.appendingPathComponent("sealed-parent")
+        try FileManager.default.createDirectory(at: sealedParent.appendingPathComponent("inner"), withIntermediateDirectories: true)
+        sealedParentCase.configuration.protectedLocations = [.init(id: "regression:sealed-inner", url: sealedParent.appendingPathComponent("inner"))]
+        sealedParentCase.configuration.globalAllowedFolders = [.init(id: "regression:broad-1", url: root, access: .readWrite)]
+        chmod(sealedParent.path, 0o000)
+        defer { chmod(sealedParent.path, 0o700) }
+        XCTAssertEqual(decision(target, .read, sealedParentCase).outcome, .deny)
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: sealedParentCase, dependencies: SandboxProfileBuilder.systemReadRoots)) { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.inaccessible)
+        }
+        // A Protected File whose own directory is searchable but not readable: the file contents are
+        // reachable by the child, yet its identity cannot be pinned, so no profile may be built.
+        var unreadableDirectoryCase = context()
+        let unreadable = root.appendingPathComponent("unreadable-directory")
+        try FileManager.default.createDirectory(at: unreadable, withIntermediateDirectories: true)
+        let tokenInside = unreadable.appendingPathComponent("token")
+        try Data("synthetic-token".utf8).write(to: tokenInside)
+        unreadableDirectoryCase.configuration.protectedLocations = [.init(id: "regression:unreadable-token", url: tokenInside)]
+        unreadableDirectoryCase.configuration.globalAllowedFolders = [.init(id: "regression:broad-2", url: root, access: .readWrite)]
+        chmod(unreadable.path, 0o111)
+        defer { chmod(unreadable.path, 0o700) }
+        XCTAssertEqual(decision(tokenInside, .read, unreadableDirectoryCase).outcome, .deny)
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: unreadableDirectoryCase, dependencies: SandboxProfileBuilder.systemReadRoots)) { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.inaccessible)
+        }
+        // A Protected Location that cannot exist because an ancestor is a regular file.
+        var impossibleAncestorCase = context()
+        let plainFile = root.appendingPathComponent("plain-file")
+        try Data("synthetic".utf8).write(to: plainFile)
+        impossibleAncestorCase.configuration.protectedLocations = [.init(id: "regression:through-file", url: plainFile.appendingPathComponent("sub"))]
+        XCTAssertEqual(decision(target, .read, impossibleAncestorCase).outcome, .deny)
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: impossibleAncestorCase, dependencies: SandboxProfileBuilder.systemReadRoots)) { error in
+            XCTAssertEqual(error as? SandboxPathError, SandboxPathError.notDirectory)
+        }
+    }
+
+    // Audited attempt: a Protected File with a second name. Policy classifies the alias correctly, but
+    // Seatbelt pathname exclusions cannot follow a pre-existing hard link, so admission must be refused.
+    func testFailClosedProtectedFileWithHardLinkAliasRefusesAdmissionOverBroadGrant() throws {
+        let secrets = root.appendingPathComponent("secret-dir")
+        try FileManager.default.createDirectory(at: secrets, withIntermediateDirectories: true)
+        let secret = secrets.appendingPathComponent("secret")
+        try Data("synthetic-secret".utf8).write(to: secret)
+        let alias = project.appendingPathComponent("alias")
+        try FileManager.default.linkItem(at: secret, to: alias)
+        defer { try? FileManager.default.removeItem(at: alias) }
+        var c = context()
+        c.configuration.protectedLocations = [.init(id: "regression:secret", url: secret)]
+        c.configuration.globalAllowedFolders = [.init(id: "regression:broad", url: root, access: .readWrite)]
+        let d = decision(alias, .read, c)
+        XCTAssertEqual(d.outcome, .requireProtectedLocationApproval)
+        XCTAssertEqual(d.rule, .protectedLocation)
+        XCTAssertEqual(d.boundaries, ["regression:secret"])
+        XCTAssertThrowsError(try SandboxProfileBuilder().make(context: c, dependencies: SandboxProfileBuilder.systemReadRoots),
+                             "A Protected file with multiple names has no safe pathname-only profile") { error in
+            XCTAssertTrue(error.localizedDescription.contains("hard link"), error.localizedDescription)
+        }
+        // Guard against over-strictness: with the alias removed the same configuration compiles.
+        try FileManager.default.removeItem(at: alias)
+        XCTAssertNotNil(try SandboxProfileBuilder().make(context: c, dependencies: SandboxProfileBuilder.systemReadRoots))
+    }
 }

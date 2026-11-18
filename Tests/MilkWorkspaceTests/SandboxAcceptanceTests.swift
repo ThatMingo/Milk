@@ -62,6 +62,51 @@ final class SandboxAcceptanceTests: XCTestCase {
         context.roots.activeProfile = .init(id:"active",agentID:.pi,url:outside,ownership:.managed)
         XCTAssertThrowsError(try SandboxProfileBuilder().make(context:context,dependencies:SandboxProfileBuilder.systemReadRoots))
     }
+    // Audited attempt (docs/SANDBOX_SECURITY_AUDIT_2026-11-18.md): a broad readWrite Allowed Folder that
+    // completely contains a Protected Location. Containment must come from the policy/allow expression
+    // and be enforced by the kernel for every reachable name - not from an appended deny rule that no
+    // approval could ever lift.
+    func testBroadAllowedFolderGrantStaysContainedAroundProtectedLocationInKernel() async throws {
+        let fm=FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("Milk-GrantOverlap-"+UUID().uuidString).resolvingSymlinksInPath()
+        let project = base.appendingPathComponent("project"), secrets = base.appendingPathComponent("secrets"), cache = base.appendingPathComponent("cache")
+        for url in [project,secrets,cache] { try fm.createDirectory(at:url,withIntermediateDirectories:true) }
+        let token = secrets.appendingPathComponent("token")
+        try Data("synthetic-kernel".utf8).write(to:token)
+        try fm.createSymbolicLink(at:project.appendingPathComponent("window"),withDestinationURL:secrets)
+        defer { try? fm.removeItem(at:base) }
+        var configuration = SandboxConfiguration(home:base)
+        configuration.protectedLocations = [.init(id:"kernel:secrets",url:secrets)]
+        configuration.globalAllowedFolders = [.init(id:"kernel:grant",url:base,access:.readWrite)]
+        let context = SandboxPolicyContext(configuration:configuration,projectConfiguration:.init(),
+            roots:.init(project:project,writableBuildRoots:[cache]),interaction:.approval)
+        // Unit level: a Protected Location inside a broad grant still requires Protected approval for every action.
+        for action in [SandboxFileAction.read, .write, .delete] {
+            let decision = SandboxPolicy().evaluate(token,action:action,context:context)
+            XCTAssertEqual(decision.outcome,.requireProtectedLocationApproval,action.rawValue)
+            XCTAssertEqual(decision.rule,.protectedLocation,action.rawValue)
+            XCTAssertEqual(decision.boundaries,["kernel:secrets"],action.rawValue)
+        }
+        let profile = try SandboxProfileBuilder().make(context:context,dependencies:SandboxProfileBuilder.systemReadRoots)
+        XCTAssertNotNil(profile)
+        // Regression guard: the reverted implementation contained no such post-hoc carve-out.
+        XCTAssertFalse(profile!.contains("(deny file-read-data file-read-xattr file-read-metadata file-write* (subpath"),
+                         "Containment must come from the allow expression, not an ungrantable appended deny")
+        // Control: the child can read and write inside the broad grant, so the denials below are containment.
+        let control = try await run("printf allowed > inside && cat inside",context:context,cache:cache)
+        XCTAssertEqual(control,0)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath:project.path).sorted(),["inside","window"])
+        // Kernel level: the same Protected object stays denied directly, through '..' traversal, and
+        // through a symlink alias that lives inside the broad readWrite grant.
+        for command in ["cat \"../secrets/token\"","cat \"window/token\"","printf bad > \"../secrets/token\"",
+                        "printf bad > \"window/token\"","ln \"../secrets/token\" stolen-token","rm -f \"../secrets/token\""] {
+            let code = try await run(command,context:context,cache:cache)
+            XCTAssertNotEqual(code,0,"Broad Allowed Folder reached a Protected Location in the kernel: \(command)")
+        }
+        XCTAssertFalse(fm.fileExists(atPath:project.appendingPathComponent("stolen-token").path))
+        XCTAssertTrue(fm.fileExists(atPath:token.path))
+        XCTAssertEqual(try Data(contentsOf:token),Data("synthetic-kernel".utf8))
+    }
 }
 
 extension SandboxHostEffectsTests {
