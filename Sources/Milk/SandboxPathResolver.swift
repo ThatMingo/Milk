@@ -85,12 +85,29 @@ struct SandboxPathResolver {
         // F_GETPATH obtains the volume's actual path spelling (including case). Opening
         // O_EVTONLY avoids reading file contents; NOFOLLOW + fstat pins this observation.
         let fd = open(path, O_EVTONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard fd >= 0 else { throw SandboxPathError.inaccessible }
-        defer { close(fd) }
+        if fd >= 0 {
+            defer { close(fd) }
+            var value = stat()
+            guard fstat(fd, &value) == 0 else { throw SandboxPathError.inaccessible }
+            var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard buffer.withUnsafeMutableBufferPointer({ fcntl(fd, F_GETPATH, $0.baseAddress!) }) == 0 else { throw SandboxPathError.inaccessible }
+            return .init(path: String(cString: buffer), identity: SandboxFileIdentity(value))
+        }
+        // Some macOS-managed directories (for example the per-user TemporaryItems folder,
+        // or TCC-protected application directories) exist but refuse even an O_EVTONLY
+        // open for their own owner. Requiring an open descriptor here would make every
+        // legitimate grant touching such a path fatal. Fall back to lstat plus the parent's
+        // own directory entry so the literal spelling handed to Seatbelt is still the
+        // volume's spelling; the walk is already component-by-component on physical paths.
         var value = stat()
-        guard fstat(fd, &value) == 0 else { throw SandboxPathError.inaccessible }
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        guard buffer.withUnsafeMutableBufferPointer({ fcntl(fd, F_GETPATH, $0.baseAddress!) }) == 0 else { throw SandboxPathError.inaccessible }
-        return .init(path: String(cString: buffer), identity: SandboxFileIdentity(value))
+        guard lstat(path, &value) == 0 else { throw SandboxPathError.inaccessible }
+        return .init(path: canonicalEntry(path), identity: SandboxFileIdentity(value))
+    }
+    private func canonicalEntry(_ path: String) -> String {
+        let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: parent)) ?? []
+        if entries.contains(name) { return parent + "/" + name }
+        if let folded = entries.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { return parent + "/" + folded }
+        return path
     }
 }

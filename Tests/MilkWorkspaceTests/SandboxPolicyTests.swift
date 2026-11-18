@@ -184,4 +184,37 @@ final class SandboxPolicyTests: XCTestCase {
         XCTAssertTrue(SandboxEnvironmentDomain.milkExtensionWorker.requiresIndependentSanitizedEnvironment)
         XCTAssertTrue(SandboxEnvironmentDomain.agentRuntime.mayReceiveConfiguredProviderCredential)
     }
+    // A protected location Milk cannot inspect (TCC-protected macOS directory, mode 000
+    // directory, etc.) must not abort policy compilation, and it must stay denied.
+    func testUninspectableProtectedLocationIsFailClosedNotFatal() throws {
+        let blocked = root.appendingPathComponent("sealed")
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
+        chmod(blocked.path, 0o000)
+        defer { chmod(blocked.path, 0o700) }
+        var c = context()
+        c.configuration.protectedLocations = [SandboxProtectedLocation(id: "sealed", url: blocked)]
+        XCTAssertEqual(decision(blocked.appendingPathComponent("token"), .read, c).outcome, .deny)
+        XCTAssertEqual(decision(blocked.appendingPathComponent("token"), .write, c).outcome, .deny)
+        let profile = try SandboxProfileBuilder().make(context: c, dependencies: SandboxProfileBuilder.systemReadRoots)
+        XCTAssertNotNil(profile)
+        let quoted = try SandboxProfileBuilder.quote(blocked.path)
+        XCTAssertTrue(profile!.contains(quoted))
+        XCTAssertTrue(profile!.contains(blocked.path))
+    }
+    // macOS can refuse an O_EVTONLY open on directories the user owns (per-user
+    // TemporaryItems, TCC-protected application folders). Resolution must still succeed
+    // with a real identity, while a descendant of an unreadable directory stays inaccessible.
+    func testUnopenableExistingDirectoryResolvesAndItsDescendantsDoNot() throws {
+        let sealed = root.appendingPathComponent("sealed-resolve")
+        try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
+        chmod(sealed.path, 0o000)
+        defer { chmod(sealed.path, 0o700) }
+        let resolved = try SandboxPathResolver().resolve(sealed)
+        XCTAssertTrue(resolved.exists)
+        XCTAssertTrue(resolved.isDirectory)
+        XCTAssertNotNil(resolved.finalIdentity)
+        XCTAssertTrue(resolved.canonicalURL.path.hasSuffix("sealed-resolve"))
+        do { _ = try SandboxPathResolver().resolve(sealed.appendingPathComponent("inside")); XCTFail("A descendant of an unreadable directory resolved") }
+        catch let error as SandboxPathError { XCTAssertEqual(error, SandboxPathError.inaccessible) }
+    }
 }

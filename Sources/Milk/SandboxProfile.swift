@@ -15,8 +15,18 @@ struct SandboxProfileBuilder {
         // Seatbelt pathname exclusions cannot follow pre-existing hard-link aliases.
         // An explicit protected file with multiple names has no safe kernel profile
         // here: reject admission rather than let a broader root expose another name.
+        // A location Milk cannot open at all (for example a TCC-protected macOS
+        // directory) is still denied by its literal path; it must not abort the launch.
+        let locationResolver = SandboxPathResolver()
+        var unverifiableProtected: [String] = []
         for location in context.configuration.protectedLocations {
-            let path=try SandboxPathResolver().resolve(location.url)
+            let path: SandboxResolvedPath
+            do {
+                path = try locationResolver.resolve(location.url)
+            } catch let error where error is SandboxPathError {
+                unverifiableProtected.append(location.url.path)
+                continue
+            }
             guard path.finalIdentity?.kind == S_IFREG else { continue }
             var info=stat()
             guard lstat(path.canonicalURL.path,&info) == 0,
@@ -26,7 +36,7 @@ struct SandboxProfileBuilder {
             }
         }
         var roots = [Root(url: URL(fileURLWithPath: "/")), Root(url: context.roots.project)]
-        roots += context.configuration.protectedLocations.map { Root(url: $0.url) }
+        roots += context.configuration.protectedLocations.filter { !unverifiableProtected.contains($0.url.path) }.map { Root(url: $0.url) }
         roots += context.roots.inactiveProfiles.map { Root(url: $0.url) }
         if let active = context.roots.activeProfile { roots.append(Root(url: active.url)) }
         roots += (context.configuration.globalAllowedFolders + context.projectConfiguration.allowedFolders).map { Root(url: $0.url) }
@@ -101,6 +111,9 @@ struct SandboxProfileBuilder {
         var sbpl = "(version 1)\n(allow default)\n(deny file-read-data file-read-xattr (require-not \(read)))\n(deny file-read-metadata (require-not (require-any \(read) \(metadata))))\n(deny file-write* (require-not \(write)))\n"
         // No general operation may mutate Git metadata, even inside a broad grant.
         sbpl += "(deny file-write* (regex #\"(^|/)\\.git(/|$)\"))\n"
+        for path in Set(unverifiableProtected).sorted() {
+            sbpl += "(deny file-read-data file-read-xattr file-read-metadata file-write* (subpath \(try Self.quote(path))))\n"
+        }
         if let repository = try SandboxGitRepository.discover(at:context.roots.project) {
             for control in repository.controls {
                 sbpl += "(deny file-write* (subpath \(try Self.quote(control.canonicalURL.path))))\n"

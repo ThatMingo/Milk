@@ -18,6 +18,8 @@ Start with the README for an overview and Developer setup to build from source.
   behaviour.
 - [Pi runtime auto-update ExecPlan](exec-plans/active/PI_RUNTIME_AUTO_UPDATE.md):
   active implementation plan, invariants and validation evidence.
+- [Native transcript rendering](CHAT_TRANSCRIPT_RENDERING.md): render-session ownership,
+  bounded height caches, tail-follow and disclosure scrolling, blank/clipping diagnostics.
 - [Provider/profile final acceptance](PROVIDER_FINAL_ACCEPTANCE.md): final clean
   build, full regression, native acceptance and merge-gate evidence.
 - [Provider/profile Phase 3](PROVIDER_PROFILE_PHASE_3.md): focused real-Pi

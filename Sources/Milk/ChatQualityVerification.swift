@@ -7,6 +7,7 @@ import Darwin
 /// explicit verification mode and the owning Pi/workspace are temporary fixtures.
 @MainActor enum ChatQualityVerification {
     static func run(state: ShellState, window: NSWindow, root: URL, project: URL) async throws {
+        setbuf(stdout, nil)
         let output = project.appendingPathComponent("output/chat-phase2")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let commandFile = output.appendingPathComponent("command.json")
@@ -31,6 +32,7 @@ import Darwin
         var clipboardBackup: [NSPasteboardItem] = []
         var clipboardCount: Int?
         var lastCopyMatched = false
+        var disclosureKey = ""
         var appearanceReference: NSHostingView<AnyView>?
         let observation = state.agent.$conversations.dropFirst().sink { _ in publications += 1 }
         defer { observation.cancel() }
@@ -53,7 +55,7 @@ import Darwin
                     "busy": state.agent.busy, "pending": state.agent.pendingActions.contains(state.selectedSession), "messages": state.agent.current.messages.count,
                     "characters": state.agent.current.messages.reduce(0) { $0 + $1.text.count }, "lastText": String((state.agent.current.messages.last?.text ?? "").suffix(500)),
                     "activities": state.agent.current.activities.count, "changes": state.agent.current.changes.count, "error": state.agent.current.error ?? "",
-                    "render": ChatScrollAudit.snapshot?() ?? [:],
+                    "render": ChatScrollAudit.snapshot?() ?? [:], "disclosed": disclosureKey,
                     "activeResponse": state.agent.current.messages.last(where: { $0.role == "assistant" })?.id ?? "",
                     "scroller": scroll?.verticalScroller?.doubleValue ?? -1,
                     "knob": scroll?.verticalScroller?.knobProportion ?? -1,
@@ -100,6 +102,7 @@ import Darwin
                         state.agent.sessions[index].sessionFile = file.path
                     }
                     state.agent.restart()
+                case "disclose": disclosureKey = ChatScrollAudit.disclose?(command["key"].string ?? "") ?? ""
                 case "stop": state.agent.stop()
                 case "new": state.newSession()
                 case "switch": state.selectedSession = Int(command["session"].number ?? 0)

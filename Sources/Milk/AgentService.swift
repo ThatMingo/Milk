@@ -51,9 +51,14 @@ struct AgentWorkspaceState: Codable {
         didSet {
             let old = oldValue[selectedSession], new = conversations[selectedSession]
             if old?.draft != new?.draft || old?.modelID != new?.modelID || old?.effort != new?.effort { composerChanges.send() }
+            // Scroll position is presentation state. Persisting it must not force a
+            // full transcript checkpoint every time the transcript moves; the next
+            // real change, session event or quit writes it.
+            if recordingScrollGeometry { return }
             scheduleConversationCheckpoint()
         }
     }
+    private var recordingScrollGeometry = false
     /// Catalog/composer inputs, never transcript tokens or scroll geometry.
     let composerChanges = PassthroughSubject<Void, Never>()
     private var checkpointTask: Task<Void, Never>?
@@ -301,6 +306,16 @@ struct AgentWorkspaceState: Codable {
             do { try sessionIndex.upsert(records.filter { $0.metadata.workspace == identity }) } catch { indexIssue = error.localizedDescription }
         }
         workspace.schedulePersistence()
+    }
+    /// Records native transcript scroll position for session restoration.
+    func recordScrollGeometry(_ id: Int, offset: Double, anchor: ChatReadingAnchor?, followsTail: Bool, width: Double) {
+        guard var saved = conversations[id] else { return }
+        guard saved.scrollOffset != offset || saved.scrollAnchor != anchor?.id || saved.followsTail != followsTail || saved.scrollWidth != width else { return }
+        saved.scrollOffset = offset; saved.followsTail = followsTail; saved.scrollWidth = width
+        if let anchor { saved.scrollAnchor = anchor.id; saved.scrollAnchorOwner = anchor.ownerID }
+        recordingScrollGeometry = true
+        conversations[id] = saved
+        recordingScrollGeometry = false
     }
     private func scheduleConversationCheckpoint() {
         guard !restoring, workspace.persistence.enabled, checkpointTask == nil else { return }

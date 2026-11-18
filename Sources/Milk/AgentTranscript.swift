@@ -155,6 +155,15 @@ final class AgentTranscriptProjection {
     private var activities: [AgentActivity] = []
     private var cached: [AgentTranscriptItem] = []
     private(set) var rebuiltMessageCount = 0
+    /// Drops the retained transcript copy. The next projection rebuilds from the
+    /// conversation, which is the source of truth; nothing user-visible is lost.
+    func reset() { messages = []; activities = []; cached = []; rebuiltMessageCount = 0 }
+    /// Text retained by the projection's own message/activity input copies, in UTF-8 bytes.
+    var retainedBytes: Int {
+        messages.reduce(0) { total, message in
+            total + message.text.utf8.count + (message.blocks?.reduce(0) { $0 + $1.text.utf8.count } ?? 0)
+        } + activities.reduce(0) { $0 + $1.output.utf8.count }
+    }
     func items(messages next: [AgentMessage], activities nextActivities: [AgentActivity]) -> [AgentTranscriptItem] {
         let metric = ChatRenderMetrics.begin()
         defer { ChatRenderMetrics.end("transcript.projection", metric) }

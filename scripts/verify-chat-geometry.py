@@ -37,6 +37,13 @@ def visible(s):
     assert r.get('visibleIDs'), ('blank viewport', s)
     assert 0 < r.get('materialized', 0) < 150, ('unbounded materialization', r)
     assert not s['metrics'].get('document.blank'), ('blank assertion', s)
+    # A hole in mounted coverage, clipped native text, or a blank band inside a
+    # piece is what the user reports as disappearing text or empty areas.
+    for channel in ('document.blank.band', 'document.text.clipped', 'document.text.blank'):
+        assert not s['metrics'].get(channel), (channel, s['metrics'][channel])
+    assert r.get('markdownCacheEntries', 0) <= 64, ('markdown cache entries', r)
+    assert r.get('markdownCacheBytes', 0) <= 1 << 18, ('markdown cache bytes', r)
+    assert not r.get('rendered', {}).get('unmountedGap', 0) or r['rendered']['unmountedGap'] <= 40, ('coverage hole', r['rendered'])
     assert not s['error'], s['error']
     return s
 
@@ -166,6 +173,67 @@ assert not s['followsTail'] and abs(s['offset'] - y) < 1, 'streaming stole viewp
 complete()
 call('wheel', delta=-1000000)
 assert settled()['followsTail']
+
+# A disclosure changes layout without moving the tail. The reader stays on the
+# same piece, and the tail is only re-adopted when the kept position is the bottom.
+# The disclosure needs a transcript that genuinely scrolls: seeded history carries
+# real restored thinking blocks and is far larger than one fixture turn.
+call('new')
+call('seed', turns=20, varied=True)
+settled()
+call('wheel', delta=-1000000)
+bottom = settled()
+assert bottom['contentHeight'] > bottom['viewportHeight'] + 100, 'disclosure case needs room to scroll'
+
+
+def find_thinking():
+    """Scroll upward until a mounted thinking disclosure is in the viewport."""
+    for _ in range(30):
+        keys = call('state')['render'].get('thinkingKeys') or []
+        if keys:
+            return keys[0]
+        if call('wheel', delta=300)['offset'] <= 1:
+            break
+    return ''
+
+
+key = find_thinking()
+assert key, 'no visible thinking disclosure to expand'
+# Locating the disclosure may have scrolled; re-baseline from the tail.
+call('wheel', delta=-1000000)
+bottom = settled()
+assert abs(bottom['offset'] - (bottom['contentHeight'] - bottom['viewportHeight'])) < 1
+expanded = call('disclose', key=key)
+assert expanded['disclosed'] == key, ('disclosure found nothing to toggle', key, expanded['disclosed'])
+expanded = settled()
+assert expanded['contentHeight'] > bottom['contentHeight'], 'disclosure did not grow the document'
+growth = expanded['contentHeight'] - bottom['contentHeight']
+moved = expanded['offset'] - bottom['offset']
+assert abs(moved) < 1 or abs(moved - growth) < 1, ('disclosure jumped the viewport', bottom['offset'], expanded['offset'], growth)
+assert expanded['render']['readingTarget'] == bottom['render']['readingTarget'], ('disclosure changed reading piece', bottom['render']['readingTarget'], expanded['render']['readingTarget'])
+# Following survives exactly when the kept position genuinely is the new bottom
+# (the same 24pt threshold ChatFollowTailState uses to re-adopt the tail).
+assert expanded['followsTail'] == (abs(expanded['offset'] - (expanded['contentHeight'] - expanded['viewportHeight'])) < 24), \
+    ('disclosure follow state', expanded['offset'], expanded['contentHeight'], expanded['viewportHeight'], expanded['followsTail'])
+for channel in ('document.blank.band', 'document.text.clipped', 'document.text.blank'):
+    assert not expanded['metrics'].get(channel), (channel, expanded['metrics'][channel])
+call('wheel', delta=300)
+reading = settled()
+assert not reading['followsTail']
+before = (reading['offset'], reading['contentHeight'], reading['render']['readingTarget'])
+call('disclose', key=key)
+collapsed = settled()
+moved = collapsed['offset'] - reading['offset']
+growth = collapsed['contentHeight'] - reading['contentHeight']
+assert abs(moved) < 1 or abs(moved - growth) < 1, ('collapse jumped the viewport', before, collapsed['offset'], growth)
+assert collapsed['render']['readingTarget'] == reading['render']['readingTarget'], ('collapse changed reading piece', before, collapsed['render'])
+assert not collapsed['followsTail'], 'collapse above the tail invented follow'
+for _ in range(3):
+    call('disclose', key=key)
+    state = settled()
+    call('disclose', key=key)
+    assert settled()['render']['readingTarget'] == state['render']['readingTarget'], 'repeat disclosure lost the piece'
+visible(call('state'))
 
 (OUTPUT / 'performance.json').write_text(json.dumps(performance, indent=2))
 (OUTPUT / 'wheel-traces.json').write_text(json.dumps(wheel_traces, indent=2))

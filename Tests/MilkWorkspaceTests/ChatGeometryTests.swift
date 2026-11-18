@@ -6,7 +6,7 @@ import SwiftUI
 final class ChatGeometryTests: XCTestCase {
     @MainActor func testProvisionalNativeWidthDoesNotConsumeSavedReadingOffset() {
         let session = ChatTranscriptSession()
-        let row = ChatTranscriptRow(id: "row", owner: "turn", order: [0], gap: 22, content: .markdown(.paragraph("Fixture")))
+        let row = ChatTranscriptRow(id: "row", owner: "turn", order: [0], gap: 22, content: .markdown(.paragraph("Fixture"), streaming: false))
         session.heights[row.id] = (row.content, 586, 2000)
         var conversation = SessionConversation()
         conversation.followsTail = false; conversation.scrollOffset = 77

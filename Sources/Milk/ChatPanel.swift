@@ -12,13 +12,22 @@ struct ChatPanel: View {
     @State private var referenceQuery = ""
     @State private var referenceMatches: [URL] = []
     @State private var referenceTask: Task<Void, Never>?
+    /// True when the picker was opened by typing `@` in the draft, so it follows the
+    /// draft. A picker opened by the `@` button is dismissed only by the reader.
+    @State private var referencesFromDraft = false
     private var draft: String {
         get { state.agent.current.draft }
         nonmutating set {
             state.updateComposerDraft(newValue)
             if let match = newValue.range(of: "(?:^|\\s)@([^\\s]*)$", options: .regularExpression) {
+                referencesFromDraft = true
                 referenceQuery = String(newValue[match]).trimmingCharacters(in: .whitespaces).dropFirst().description
                 references = true; searchReferences()
+            } else if referencesFromDraft {
+                // The `@` trigger is gone from the draft; the picker must not keep
+                // showing the previous query's matches.
+                referencesFromDraft = false
+                references = false
             }
         }
     }
@@ -42,6 +51,7 @@ struct ChatPanel: View {
             }
         }.background(MilkTheme.canvas)
             .onChange(of: state.selectedSession) { _, _ in state.refreshSlashCommands() }
+            .onChange(of: state.sessions.map(\.id)) { _, ids in transcriptStore.retain(open: Set(ids)) }
             .onChange(of: state.agent.presentedApproval?.id) { _, value in if value != nil { references = false } }
     }
     private func composer(narrow: Bool) -> some View {
@@ -183,11 +193,7 @@ private struct AgentConversationView: View {
             NativeChatTranscript(rows: rendering.rows(conversation, empty: empty), session: rendering,
                                  conversation: conversation, narrow: narrow, sessionID: sessionID, paneWidth: width,
                                  remember: { offset, anchor, follows, scrollWidth in
-                guard var saved = state.agent.conversations[sessionID] else { return }
-                guard saved.scrollOffset != offset || saved.scrollAnchor != anchor?.id || saved.followsTail != follows || saved.scrollWidth != scrollWidth else { return }
-                saved.scrollOffset = offset; saved.followsTail = follows; saved.scrollWidth = scrollWidth
-                if let anchor { saved.scrollAnchor = anchor.id; saved.scrollAnchorOwner = anchor.ownerID }
-                state.agent.conversations[sessionID] = saved
+                state.agent.recordScrollGeometry(sessionID, offset: offset, anchor: anchor, followsTail: follows, width: scrollWidth)
             }, content: { row in AnyView(ChatTranscriptRowView(row: row, state: state, session: rendering, narrow: narrow)) })
         }
     }
@@ -202,8 +208,8 @@ private struct ChatTranscriptRowView: View {
         Group {
             switch row.content {
             case .user(let message): AgentUserMessageView(message: message, narrow: narrow)
-            case .header(let turn): AgentResponseHeader(response: turn)
-            case .markdown(let block): AgentMarkdownPiece(block: block).font(.system(size: 14)).textSelection(.enabled)
+            case .header(let turn): AgentResponseHeader(response: turn, agentName: state.agent.currentAgentDisplayName)
+            case .markdown(let block, _): AgentMarkdownPiece(block: block).font(.system(size: 14)).textSelection(.enabled)
             case .thinking(let block, let label, let expanded, let active):
                 AgentThinkingContent(block: block, label: label, expanded: expanded, active: active) { session.choices[row.owner] = !expanded }
             case .activity(let activities, let expanded, let outputs):
@@ -258,11 +264,15 @@ private struct AgentUserMessageView: View, Equatable {
 struct AgentResponseHeader: View {
     @Environment(\.milkExtensionActionContext) private var extensionContext
     let response: AgentResponseTurn
+    /// The turn's owning agent, supplied by the session's adapter. Milk core must not
+    /// bake a provider-specific name into generic transcript chrome.
+    var agentName: String? = nil
+    static func title(for displayName: String?) -> String { displayName ?? "Assistant" }
     var body: some View {
 HStack(spacing: 8) {
                 Image(systemName: "drop").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 22, height: 22).background(MilkTheme.accent, in: RoundedRectangle(cornerRadius: 6))
-                Text("Pi").fontWeight(.semibold)
+                Text(Self.title(for: agentName)).fontWeight(.semibold)
                 ExtensionSlot(point:.chatMessageActions)
                     .environment(\.milkExtensionActionContext,.init(workspaceURL:extensionContext.workspaceURL,text:response.blocks.filter { $0.kind == .text }.map(\.text).joined(separator:"\n")))
                 if response.streaming && !response.thinkingActive { ProgressView().controlSize(.mini) }
@@ -406,6 +416,15 @@ struct AgentActivityRowContent: View {
 
 enum AgentMarkdownBlock: Equatable, Hashable {
     case paragraph(String), heading(Int, String), code(String), quote(String), list(String, String), rule
+    /// Size of the text this piece retains, used to bound measurement caches.
+    var utf8Count: Int {
+        switch self {
+        case .paragraph(let text), .code(let text), .quote(let text): return text.utf8.count
+        case .heading(_, let text): return text.utf8.count
+        case .list(let marker, let text): return marker.utf8.count + text.utf8.count
+        case .rule: return 0
+        }
+    }
     static func parse(_ text: String) -> [Self] {
         let metric = ChatRenderMetrics.begin()
         defer { ChatRenderMetrics.end("markdown.parse", metric, units: text.utf8.count) }
@@ -458,7 +477,14 @@ struct AgentMarkdownPiece: View, Equatable {
         case .paragraph(let value): inline(value).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading)
         case .heading(let level, let value): inline(value).font(.system(size: CGFloat(max(14, 25 - level * 2)), weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
         case .code(let value):
-            ScrollView(.horizontal) { Text(value).font(.system(size: 12, design: .monospaced)).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+            // Wrapped native selectable text, not a SwiftUI horizontal ScrollView: a
+            // nested scroll view would own its own visible horizontal indicator and
+            // swallow wheel events over the block, so the transcript could not be
+            // scrolled while the pointer was on the code. Wrapping removes the need
+            // for horizontal scrolling entirely.
+            SelectableContent(text: value, size: 12, monospaced: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(MilkTheme.surface, in: RoundedRectangle(cornerRadius: 8))
         case .quote(let value): inline(value).foregroundStyle(MilkTheme.muted).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).overlay(alignment: .leading) { MilkTheme.line.frame(width: 2) }
         case .list(let marker, let value): HStack(alignment: .top, spacing: 8) { Text(marker); inline(value).frame(maxWidth: .infinity, alignment: .leading) }

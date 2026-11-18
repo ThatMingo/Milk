@@ -4,7 +4,7 @@ struct ChatTranscriptRow: Identifiable, Equatable {
     enum Content: Equatable {
         case user(AgentMessage)
         case header(AgentResponseTurn)
-        case markdown(AgentMarkdownBlock)
+        case markdown(AgentMarkdownBlock, streaming: Bool)
         case thinking(AgentContentBlock, label: Bool, expanded: Bool, active: Bool)
         case activity([AgentActivity], expanded: Bool, outputs: Set<String>)
         case changes([AgentFileChange])
@@ -22,12 +22,23 @@ struct ChatTranscriptRow: Identifiable, Equatable {
 /// Rendering state is local to Chat, keyed by session and stable transcript IDs.
 /// Unmounting native views must not collapse disclosures or forget measurements.
 @MainActor final class ChatTranscriptSession: ObservableObject {
-    @Published var choices: [String: Bool] = [:]
+    /// Bumped by user disclosure choices only. A disclosure changes geometry
+    /// without moving the transcript tail, so the scroll owner needs to tell the
+    /// two apart. Survives geometry eviction because choices do.
+    private(set) var disclosureRevision = 0
+    @Published var choices: [String: Bool] = [:] {
+        didSet { if oldValue != choices { disclosureRevision += 1 } }
+    }
     var projection = AgentTranscriptProjection()
     private var cached: [String: (AgentTranscriptItem, [String: Bool], [ChatTranscriptRow])] = [:]
     var heights: [String: (ChatTranscriptRow.Content, Double, Double)] = [:]
-    var sharedMarkdownHeights: [Double: [AgentMarkdownBlock: Double]] = [:]
-    func releaseGeometry() { heights.removeAll(); sharedMarkdownHeights.removeAll(); cached.removeAll() }
+    var markdownHeights = ChatMarkdownHeightCache()
+    /// Released when a render session stops being recently used, or when its
+    /// workspace session closes. Disclosure choices are deliberately kept.
+    func releaseGeometry() { heights.removeAll(); markdownHeights.removeAll(); cached.removeAll(); projection.reset() }
+    /// Diagnostics only: text this render session retains beyond the conversation.
+    var retainedBytes: Int { markdownHeights.retainedBytes + projection.retainedBytes }
+    var cacheEntries: Int { markdownHeights.count }
     func rows(_ conversation: SessionConversation, empty: String) -> [ChatTranscriptRow] {
         let items = projection.items(messages: conversation.messages, activities: conversation.activities)
         var result: [ChatTranscriptRow] = []
@@ -57,7 +68,7 @@ struct ChatTranscriptRow: Identifiable, Equatable {
                                 let j = turn.blocks.firstIndex(where: { $0.id == block.id }) ?? 0
                                 if block.kind == .text {
                                     for (k, piece) in AgentMarkdownBlock.parse(block.text).enumerated() {
-                                        add(block.id + "-markdown-" + String(k), .markdown(piece), [j, k], gap: k == 0 ? 12 : 10)
+                                        add(block.id + "-markdown-" + String(k), .markdown(piece, streaming: block.streaming), [j, k], gap: k == 0 ? 12 : 10)
                                     }
                                 } else if block.visibleThinking && (expanded || block.id == firstThinking) {
                                     add(block.id, .thinking(block, label: block.id == firstThinking, expanded: expanded, active: turn.thinkingActive), [j])
@@ -84,14 +95,67 @@ struct ChatTranscriptRow: Identifiable, Equatable {
     }
 }
 
+/// Identical settled Markdown pieces share one measurement at a given content
+/// width. The cache is explicitly bounded: entries are evicted oldest-first once
+/// either the entry or retained-text budget is exceeded, so a live stream that
+/// re-measures a growing response thousands of times cannot retain every
+/// intermediate prefix of that response.
+struct ChatMarkdownHeightCache {
+    /// Distinct pieces retained at a time, across all measured widths.
+    static let entryLimit = 64
+    /// Markdown text retained by cache keys, in UTF-8 bytes.
+    static let characterLimit = 1 << 18
+    /// Pane widths are quantized; older widths are dropped beyond this many.
+    static let widthLimit = 3
+
+    private(set) var widths: [Double: [AgentMarkdownBlock: Double]] = [:]
+    private var order: [(width: Double, block: AgentMarkdownBlock, bytes: Int)] = []
+
+    var count: Int { order.count }
+    var isEmpty: Bool { order.isEmpty }
+    var retainedBytes: Int { order.reduce(0) { $0 + $1.bytes } }
+
+    func height(at width: Double, for block: AgentMarkdownBlock) -> Double? { widths[width]?[block] }
+
+    mutating func setHeight(_ height: Double, at width: Double, for block: AgentMarkdownBlock) {
+        let bytes = block.utf8Count
+        // One oversized piece is measured on demand instead of evicting everything
+        // else; keeping it here would defeat the budget on its own.
+        guard bytes <= Self.characterLimit else { return }
+        if widths[width]?[block] != nil { order.removeAll { $0.width == width && $0.block == block } }
+        order.append((width, block, bytes))
+        widths[width, default: [:]][block] = height
+        if widths.count > Self.widthLimit {
+            widths = widths.filter { $0.key == width }
+            order.removeAll { $0.width != width }
+        }
+        while order.count > Self.entryLimit || retainedBytes > Self.characterLimit {
+            guard let oldest = order.first else { break }
+            order.removeFirst()
+            widths[oldest.width]?.removeValue(forKey: oldest.block)
+            if widths[oldest.width]?.isEmpty == true { widths[oldest.width] = nil }
+        }
+    }
+
+    mutating func removeAll() { widths.removeAll(); order.removeAll() }
+}
+
 @MainActor final class ChatTranscriptStore {
     private var sessions: [Int: ChatTranscriptSession] = [:]
     private var recent: [Int] = []
+    /// Sessions currently holding rendering state, for tests and verification only.
+    var retainedSessions: Set<Int> { Set(sessions.keys) }
     func session(_ id: Int) -> ChatTranscriptSession {
         recent.removeAll { $0 == id }; recent.append(id)
         if recent.count > 4 { sessions[recent.removeFirst()]?.releaseGeometry() }
         if let value = sessions[id] { return value }
         let value = ChatTranscriptSession(); sessions[id] = value
         return value
+    }
+    /// A session that is no longer open keeps no rendering state at all: its
+    /// projection copy, measurements, row cache and disclosures are all local.
+    func retain(open ids: Set<Int>) {
+        for id in Set(sessions.keys).subtracting(ids) { sessions[id] = nil }
+        recent.removeAll { !ids.contains($0) }
     }
 }
